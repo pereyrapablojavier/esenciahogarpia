@@ -168,7 +168,7 @@ async function load(){
   S.pedidos=ped.map(o=>({id:o.id,fecha:o.fecha,cliente:o.cliente,canal:o.canal_id,estado:o.estado,faltan:o.faltan,
     com:o.comision==null?null:+o.comision,fijo:o.fijo==null?null:+o.fijo,
     items:pit.filter(x=>x.pedido_id===o.id).map(x=>({p:x.producto_id,q:x.q,
-      precio:x.precio_unit==null?null:+x.precio_unit,costo:x.costo_unit==null?null:+x.costo_unit}))})).sort((a,b)=>a.id-b.id);
+      precio:x.precio_unit==null?null:+x.precio_unit,costo:x.costo_unit==null?null:+x.costo_unit,de:x.de_stock||0}))})).sort((a,b)=>a.id-b.id);
 }
 const activos=()=>S.productos.filter(p=>p.activo);
 const nom=p=>p?p.nombre+(p.variante?' · '+p.variante:''):'?';
@@ -467,16 +467,19 @@ function vPedidos(){
     <td>${o.items.map(i=>`${i.q}× ${esc(nom(byId(S.productos,i.p)))}`).join('<br>')}${o.faltan?`<br><span class="tag warn">a producir: ${o.faltan}</span>`:''}</td>
     <td class="r" style="${x?'text-decoration:line-through':''}">${money(totalPedido(o))}</td><td class="r ${x?'':g>=0?'pos':'neg'}">${x?'—':money(g)}</td>
     <td>${x?'<span class="tag bad">Cancelado</span>':`<button class="tag ${o.estado==='Entregado'?'ok':o.estado==='Enviado'?'info':o.estado==='Preparando'?'warn':''}" style="border:0;cursor:pointer" onclick="nextEstado(${o.id})" title="Click para avanzar">${o.estado} ›</button>`}</td>
-    <td class="r" style="white-space:nowrap"><button class="btn ghost sm" onclick="editPed(${o.id})">Editar</button>${x?'':` <button class="btn ghost sm" onclick="askCancel(${o.id})">Cancelar</button>`}</td></tr>`}).join('')}
+    <td class="r" style="white-space:nowrap">${x?'':`<button class="btn ghost sm" onclick="editPed(${o.id})">Editar</button> <button class="btn ghost sm" onclick="askCancel(${o.id})">Cancelar</button>`}</td></tr>`}).join('')}
   </tbody></table>`}</div>`;
 }
 function nextEstado(id){const o=byId(S.pedidos,id);if(o.estado==='Cancelado')return;const e=ESTADOS[(ESTADOS.indexOf(o.estado)+1)%ESTADOS.length];act(()=>ok(sb.from('pedidos').update({estado:e}).eq('id',id)))}
-/* Editar: solo el nombre/referencia del cliente. Cambiar productos o canal altera stock y precios:
-   para eso se cancela el pedido y se carga de nuevo. */
+/* Editar un pedido. Pendiente/Preparando: productos, cantidades y canal (el stock se reacomoda en la base).
+   Enviado/Entregado: solo el cliente, porque el producto ya salió. Cancelado: no se edita. */
 function editPed(id){const o=byId(S.pedidos,id);
-  openModal(`<h2>Editar pedido</h2><div class="form"><div class="full"><label>Cliente / referencia</label><input id="e1" value="${esc(o.cliente)}"></div></div>
-  <p class="muted" style="margin-top:10px">Para cambiar productos, cantidades o canal: cancelá este pedido y cargalo de nuevo.</p>
-  <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="savePedCliente(${id})">Guardar</button></div>`)}
+  if(o.estado==='Cancelado')return toast('Un pedido cancelado no se puede editar.');
+  if(o.estado==='Enviado'||o.estado==='Entregado'){
+    openModal(`<h2>Editar pedido</h2><div class="form"><div class="full"><label>Cliente / referencia</label><input id="e1" value="${esc(o.cliente)}"></div></div>
+    <p class="muted" style="margin-top:10px">Como el pedido ya figura como ${esc(o.estado.toLowerCase())}, solo se puede cambiar el cliente. Si hubo un error en los productos, cancelalo (el stock no se devuelve) y cargá uno nuevo.</p>
+    <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="savePedCliente(${id})">Guardar</button></div>`);return}
+  draft=o.items.map(i=>({p:i.p,q:i.q}));pv={id,c:o.cliente,ca:o.canal};pedModal()}
 function savePedCliente(id){const c=$('#e1').value.trim()||'Sin nombre';closeModal();act(()=>ok(sb.from('pedidos').update({cliente:c}).eq('id',id)))}
 function askCancel(id){const o=byId(S.pedidos,id);const vuelve=o.estado==='Pendiente'||o.estado==='Preparando';
   openModal(`<h2>¿Cancelar el pedido de «${esc(o.cliente)}»?</h2>
@@ -488,33 +491,40 @@ let draft=[];let pv={c:'',ca:''};
 function newPed(){
   if(!activos().length)return toast('Primero creá al menos un producto.');
   if(!S.canales.length)return toast('No hay canales de venta cargados.');
-  draft=[{p:activos()[0].id,q:1}];pv={c:'',ca:S.canales[S.canales.length-1].id};pedModal()}
-function pedRead(){pv={c:$('#pc').value,ca:$('#pca').value}}
+  draft=[{p:activos()[0].id,q:1}];pv={id:null,c:'',ca:S.canales[S.canales.length-1].id};pedModal()}
+function pedRead(){pv={...pv,c:$('#pc').value,ca:$('#pca').value}}
+const origPed=()=>pv.id?byId(S.pedidos,pv.id):null;
+/* Al editar, las unidades que este pedido ya tenía descontadas cuentan como disponibles. */
+const disp=p=>p.stock+((origPed()?.items.find(i=>i.p===p.id)?.de)||0);
+const opcionesProd=()=>{const o=origPed();const extra=o?o.items.map(i=>byId(S.productos,i.p)).filter(p=>p&&!p.activo):[];return [...activos(),...extra]};
+const precioDraft=l=>{const o=origPed();const it=o&&pv.ca===o.canal?o.items.find(i=>i.p===l.p):null;return it&&it.precio!=null?it.precio:((byId(S.productos,l.p)?.precios[pv.ca])||0)};
 function pedModal(){
-  const faltas=draft.map(l=>Math.max(0,l.q-byId(S.productos,l.p).stock));
+  const faltas=draft.map(l=>Math.max(0,l.q-disp(byId(S.productos,l.p))));
   const aviso=draft.map((l,ix)=>{
     if(!faltas[ix])return '';
     const p=byId(S.productos,l.p);
     const need={};p.fil.forEach(x=>need[x.id]=(need[x.id]||0)+x.g*faltas[ix]);
     const lack=Object.entries(need).filter(([id,g])=>byId(S.filamentos,id).resta<g).map(([id,g])=>`${esc(byId(S.filamentos,id).color)}: faltan ${g-byId(S.filamentos,id).resta} g`);
     return `<div class="note" style="background:#fbecd8">Faltan ${faltas[ix]} u. de «${esc(nom(p))}» para producir.${p.fil.length?(lack.length?' No alcanza el filamento → '+lack.join(', '):' El filamento alcanza.'):''}</div>`}).join('');
-  const total=draft.reduce((a,l)=>a+l.q*(byId(S.productos,l.p).precios[pv.ca]||0),0);
-  openModal(`<h2>Nuevo pedido</h2><div class="form">
+  const total=draft.reduce((a,l)=>a+l.q*precioDraft(l),0);
+  openModal(`<h2>${pv.id?'Editar pedido':'Nuevo pedido'}</h2>${pv.id?'<p class="muted" style="margin:-6px 0 12px">Al guardar, el stock se reacomoda. Los productos que ya estaban conservan su precio; si cambiás el canal, se recalcula todo con los precios actuales.</p>':''}<div class="form">
     <div><label>Cliente / referencia</label><input id="pc" value="${esc(pv.c)}"></div>
     <div><label>Canal de venta</label><select id="pca" onchange="pedRead();pedModal()">${S.canales.map(c=>`<option value="${c.id}" ${c.id===pv.ca?'selected':''}>${esc(c.nombre)}</option>`).join('')}</select></div></div>
     <div style="margin-top:14px"><label>Productos</label>
-    ${draft.map((l,ix)=>`<div class="line"><select onchange="pedRead();draft[${ix}].p=+this.value;pedModal()">${activos().map(p=>`<option value="${p.id}" ${p.id===l.p?'selected':''}>${esc(nom(p))} (${p.stock} listos)</option>`).join('')}</select>
+    ${draft.map((l,ix)=>`<div class="line"><select onchange="pedRead();draft[${ix}].p=+this.value;pedModal()">${opcionesProd().map(p=>`<option value="${p.id}" ${p.id===l.p?'selected':''}>${esc(nom(p))}${p.activo?'':' (archivado)'} (${disp(p)} listos)</option>`).join('')}</select>
       <input type="number" min="1" value="${l.q}" onchange="pedRead();draft[${ix}].q=Math.max(1,parseInt(this.value)||1);pedModal()"><button class="rm" onclick="pedRead();draft.splice(${ix},1);if(!draft.length)draft.push({p:activos()[0].id,q:1});pedModal()">×</button></div>`).join('')}
     <button class="btn ghost sm" onclick="pedRead();draft.push({p:activos()[0].id,q:1});pedModal()">+ otro producto</button></div>
     ${aviso}
     <div style="margin-top:12px"><b>Total: ${money(total)}</b></div>
-    <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="savePed()">Guardar pedido</button></div>`);
+    <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="savePed()">${pv.id?'Guardar cambios':'Guardar pedido'}</button></div>`);
 }
 function savePed(){
   pedRead();
   const merged=Object.values(draft.reduce((m,l)=>{m[l.p]=m[l.p]?{p:l.p,q:m[l.p].q+l.q}:{...l};return m},{}));
   closeModal();S.view='pedidos';
-  act(()=>ok(sb.rpc('crear_pedido',{p_cliente:pv.c,p_canal:pv.ca,p_items:merged})));
+  act(()=>ok(pv.id
+    ?sb.rpc('editar_pedido',{p_id:pv.id,p_cliente:pv.c,p_canal:pv.ca,p_items:merged})
+    :sb.rpc('crear_pedido',{p_cliente:pv.c,p_canal:pv.ca,p_items:merged})));
 }
 
 /* ---------- Precios y canales ---------- */
