@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PIA · Esencia Hogar — Gestión (prototipo)</title>
+<title>PIA · Esencia Hogar — Gestión</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Niramit:wght@400;500;600;700&family=Rubik:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -85,75 +85,91 @@ label{font-size:12px;color:var(--gray);display:block;margin-bottom:3px}
   .two{grid-template-columns:1fr}
   .form{grid-template-columns:1fr}
 }
+
+.rm{border:0;background:none;color:var(--danger);font-size:20px;line-height:1;padding:0 4px}
+#login{min-height:100vh;display:none;align-items:center;justify-content:center;padding:20px}
+#login .card{width:100%;max-width:380px;padding:30px 26px;text-align:center}
+#login .pia{font-family:var(--hf);font-size:46px;font-weight:700;letter-spacing:.14em;color:var(--primary);line-height:1}
+#login .sub{font-family:var(--hf);font-size:12px;letter-spacing:.34em;color:var(--gray);text-transform:uppercase;margin:6px 0 24px}
+#login input{margin-bottom:10px;text-align:left}
+#login .btn{width:100%;padding:11px}
+#lerr{color:#b84a47;font-size:13px;min-height:18px;margin-top:10px}
+#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--primary-dark);color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:30;max-width:92vw}
+#toast.on{opacity:1}
+.foot button{margin-top:8px}
+#out{display:none;position:fixed;top:10px;right:12px;z-index:9}
+@media(max-width:820px){#out{display:block}}
 </style>
 </head>
 <body>
-<div class="app">
+<div id="login">
+  <div class="card">
+    <div class="pia">PIA</div><div class="sub">Esencia Hogar</div>
+    <input id="le" type="email" placeholder="Correo" autocomplete="username">
+    <input id="lp" type="password" placeholder="Contraseña" autocomplete="current-password">
+    <button class="btn" id="lb" onclick="entrar()">Ingresar</button>
+    <div id="lerr"></div>
+  </div>
+</div>
+<div class="app" id="app" style="display:none">
   <aside>
     <div class="brand"><div class="pia">PIA</div><div class="sub">Esencia Hogar</div></div>
     <nav id="nav"></nav>
-    <div class="foot">Prototipo · datos de ejemplo<br>Los precios, comisiones y costos son editables.</div>
+    <div class="foot"><span id="who"></span><br><button class="btn ghost sm" onclick="salir()">Salir</button></div>
   </aside>
   <main id="main"></main>
 </div>
+<button class="btn ghost sm" id="out" onclick="salir()">Salir</button>
 <div class="modal" id="modal"><div class="box" id="box"></div></div>
-
+<div id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-/* ---------- Datos de ejemplo (en la versión real vienen de Supabase) ---------- */
-const S = {
-  config:{costoHora:350, margenObjetivo:40},
-  canales:[
-    {id:'ml', nombre:'Mercado Libre', com:14, fijo:1500},
-    {id:'tn', nombre:'Tienda Nube', com:3.5, fijo:0},
-    {id:'ig', nombre:'Instagram / WhatsApp', com:0, fijo:0}
-  ],
-  filamentos:[
-    {id:1, marca:'Grilon3', material:'PLA', color:'Verde cactus', hex:'#3f7d4e', costoKg:22000, rollo:1000, resta:120},
-    {id:2, marca:'Grilon3', material:'PLA', color:'Crema', hex:'#efe6cf', costoKg:22000, rollo:1000, resta:560},
-    {id:3, marca:'Printalot', material:'PLA', color:'Blanco', hex:'#f4f4f2', costoKg:20500, rollo:1000, resta:740},
-    {id:4, marca:'Grilon3', material:'PETG', color:'Negro', hex:'#2b2b2b', costoKg:26000, rollo:1000, resta:900}
-  ],
-  insumos:[
-    {id:1, nombre:'Caja chica de envío', cat:'Packaging', un:'u', cant:40, min:20, costo:450},
-    {id:2, nombre:'Bolsa kraft', cat:'Packaging', un:'u', cant:120, min:50, costo:90},
-    {id:3, nombre:'Frasco spray 200 ml', cat:'Aromas', un:'u', cant:25, min:30, costo:800},
-    {id:4, nombre:'Esencia lavanda', cat:'Aromas', un:'ml', cant:480, min:200, costo:18},
-    {id:5, nombre:'Base alcohol aromático', cat:'Aromas', un:'ml', cant:3200, min:1000, costo:3},
-    {id:6, nombre:'Arcilla', cat:'Cerámica', un:'kg', cant:12, min:5, costo:1900},
-    {id:7, nombre:'Esmalte blanco', cat:'Cerámica', un:'ml', cant:900, min:300, costo:6},
-    {id:8, nombre:'Cera de soja', cat:'Aromas', un:'kg', cant:4, min:2, costo:7500}
-  ],
-  productos:[
-    {id:1, nombre:'Cactus · Colección Botánica', linea:'3D', fil:[{id:1,g:45},{id:2,g:30}], horas:3.5, ins:[{id:1,q:1}], directo:0, stock:6, precios:{ml:14900,tn:12500,ig:11900}},
-    {id:2, nombre:'Maceta Nido', linea:'3D', fil:[{id:2,g:120}], horas:5, ins:[{id:1,q:1}], directo:0, stock:3, precios:{ml:12900,tn:10900,ig:9900}},
-    {id:3, nombre:'Home Spray Nano 200 ml', linea:'Aromas', fil:[], horas:0, ins:[{id:3,q:1},{id:4,q:20},{id:5,q:180},{id:2,q:1}], directo:0, stock:12, precios:{ml:9800,tn:8100,ig:7500}},
-    {id:4, nombre:'Plato Playo «Nido Botánico»', linea:'Cerámica', fil:[], horas:0, ins:[{id:6,q:0.6},{id:7,q:40},{id:1,q:1}], directo:1800, stock:4, precios:{ml:16000,tn:13500,ig:12800}},
-    {id:5, nombre:'Vela de soja', linea:'Aromas', fil:[], horas:0, ins:[{id:8,q:0.25},{id:2,q:1}], directo:900, stock:8, precios:{ml:8900,tn:7500,ig:6900}}
-  ],
-  pedidos:[
-    {id:1, fecha:'2026-11-20', cliente:'Lucía M.', canal:'ig', items:[{p:3,q:2}], estado:'Entregado'},
-    {id:2, fecha:'2026-11-22', cliente:'Pedido ML #4471', canal:'ml', items:[{p:1,q:1},{p:2,q:1}], estado:'Enviado'},
-    {id:3, fecha:'2026-11-24', cliente:'Carla R.', canal:'tn', items:[{p:4,q:2}], estado:'Preparando'}
-  ],
-  tabStock:'filamentos', tabProd:'todas', view:'panel'
-};
+/* ---------- Conexión a Supabase ----------
+   La "publishable key" es pública por diseño: lo que protege los datos son las reglas
+   de acceso (RLS) de la base, que solo dejan entrar a los correos autorizados. */
+const SUPABASE_URL='https://omsqeklrbstoirljrhjb.supabase.co';
+const SUPABASE_KEY='sb_publishable_vzXjLm2Y152Gk2F1rjMD-Q_AJVKVd_m';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+const S={config:{costoHora:350,margenObjetivo:40},canales:[],filamentos:[],insumos:[],productos:[],pedidos:[],
+  tabStock:'filamentos',tabProd:'todas',view:'panel',email:''};
 const ESTADOS=['Pendiente','Preparando','Enviado','Entregado'];
 const $=s=>document.querySelector(s);
 const money=n=>'$ '+Math.round(n).toLocaleString('es-AR');
-const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const byId=(arr,id)=>arr.find(x=>x.id==id);
 const canal=id=>S.canales.find(c=>c.id===id);
 
+/* ---------- Acceso a datos ---------- */
+async function ok(p){const r=await p;if(r.error)throw new Error(r.error.message);return r.data}
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('on'),4500)}
+async function act(fn){try{await fn();await load();render()}catch(e){toast('No se pudo guardar: '+e.message)}}
+async function load(){
+  const q=t=>ok(sb.from(t).select('*'));
+  const [cfg,can,fil,ins,pro,pf,pi,pr,ped,pit]=await Promise.all(
+    ['config','canales','filamentos','insumos','productos','producto_filamentos','producto_insumos','precios','pedidos','pedido_items'].map(q));
+  if(cfg[0])S.config={costoHora:+cfg[0].costo_hora,margenObjetivo:+cfg[0].margen_objetivo};
+  S.canales=can.map(c=>({id:c.id,nombre:c.nombre,com:+c.comision,fijo:+c.fijo}));
+  S.filamentos=fil.map(f=>({id:f.id,marca:f.marca,material:f.material,color:f.color,hex:f.hex,costoKg:+f.costo_kg,rollo:+f.rollo,resta:+f.resta})).sort((a,b)=>a.id-b.id);
+  S.insumos=ins.map(i=>({id:i.id,nombre:i.nombre,cat:i.cat,un:i.un,cant:+i.cant,min:+i.min,costo:+i.costo})).sort((a,b)=>a.id-b.id);
+  S.productos=pro.map(p=>({id:p.id,nombre:p.nombre,linea:p.linea,horas:+p.horas,directo:+p.directo,stock:p.stock,
+    fil:pf.filter(x=>x.producto_id===p.id).map(x=>({id:x.filamento_id,g:+x.g})),
+    ins:pi.filter(x=>x.producto_id===p.id).map(x=>({id:x.insumo_id,q:+x.q})),
+    precios:Object.fromEntries(pr.filter(x=>x.producto_id===p.id).map(x=>[x.canal_id,+x.precio]))})).sort((a,b)=>a.id-b.id);
+  S.pedidos=ped.map(o=>({id:o.id,fecha:o.fecha,cliente:o.cliente,canal:o.canal_id,estado:o.estado,faltan:o.faltan,
+    items:pit.filter(x=>x.pedido_id===o.id).map(x=>({p:x.producto_id,q:x.q}))})).sort((a,b)=>a.id-b.id);
+}
+
 /* ---------- Cálculos ---------- */
 function costo(p){
-  const f=p.fil.reduce((a,x)=>a+x.g*byId(S.filamentos,x.id).costoKg/1000,0);
-  const i=p.ins.reduce((a,x)=>a+x.q*byId(S.insumos,x.id).costo,0);
+  const f=p.fil.reduce((a,x)=>a+x.g*(byId(S.filamentos,x.id)?.costoKg||0)/1000,0);
+  const i=p.ins.reduce((a,x)=>a+x.q*(byId(S.insumos,x.id)?.costo||0),0);
   return f+i+p.horas*S.config.costoHora+p.directo;
 }
-function neto(p,c,precio){return precio*(1-c.com/100)-c.fijo}
+function neto(c,precio){return precio*(1-c.com/100)-c.fijo}
 function sugerido(p,c){const m=S.config.margenObjetivo/100;return (costo(p)+c.fijo)/(1-c.com/100-m)}
-function totalPedido(o){return o.items.reduce((a,i)=>a+i.q*(byId(S.productos,i.p).precios[o.canal]||0),0)}
-function gananciaPedido(o){const c=canal(o.canal);return o.items.reduce((a,i)=>{const p=byId(S.productos,i.p);return a+i.q*(neto(p,c,p.precios[o.canal]||0)-costo(p))},0)+0}
+function totalPedido(o){return o.items.reduce((a,i)=>a+i.q*((byId(S.productos,i.p)?.precios[o.canal])||0),0)}
+function gananciaPedido(o){const c=canal(o.canal);if(!c)return 0;return o.items.reduce((a,i)=>{const p=byId(S.productos,i.p);if(!p)return a;return a+i.q*(neto(c,p.precios[o.canal]||0)-costo(p))},0)}
 function alertas(){
   const a=[];
   S.filamentos.forEach(f=>{if(f.resta<f.rollo*0.2)a.push({t:`${f.material} ${f.color}`,d:`quedan ${f.resta} g`})});
@@ -170,35 +186,32 @@ const ICON={
   precios:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 12l-8 8-9-9V3h8z"/><circle cx="7.5" cy="7.5" r="1.3"/></svg>'
 };
 const VIEWS=[['panel','Panel'],['stock','Stock'],['productos','Productos'],['pedidos','Pedidos'],['precios','Precios']];
-function drawNav(){
-  $('#nav').innerHTML=VIEWS.map(([k,n])=>`<button class="${S.view===k?'on':''}" onclick="go('${k}')">${ICON[k]}<span>${n}</span></button>`).join('');
-}
+function drawNav(){$('#nav').innerHTML=VIEWS.map(([k,n])=>`<button class="${S.view===k?'on':''}" onclick="go('${k}')">${ICON[k]}<span>${n}</span></button>`).join('')}
 function go(v){S.view=v;location.hash=v;render()}
-function render(){drawNav();({panel:vPanel,stock:vStock,productos:vProductos,pedidos:vPedidos,precios:vPrecios})[S.view]();window.scrollTo(0,0)}
+function render(){drawNav();$('#who').textContent=S.email;({panel:vPanel,stock:vStock,productos:vProductos,pedidos:vPedidos,precios:vPrecios})[S.view]();window.scrollTo(0,0)}
+const vacio=t=>`<div class="muted" style="padding:14px 4px">${t}</div>`;
 
 /* ---------- Panel ---------- */
 function vPanel(){
-  const ped=S.pedidos.filter(o=>o.estado!=='Pendiente'||true);
-  const ventas=ped.reduce((a,o)=>a+totalPedido(o),0);
-  const gan=ped.reduce((a,o)=>a+gananciaPedido(o),0);
+  const ventas=S.pedidos.reduce((a,o)=>a+totalPedido(o),0);
+  const gan=S.pedidos.reduce((a,o)=>a+gananciaPedido(o),0);
   const pend=S.pedidos.filter(o=>o.estado!=='Entregado').length;
   const al=alertas();
-  const rank=S.productos.map(p=>{const c=canal('tn');return {p,m:neto(p,c,p.precios.tn)-costo(p)}}).sort((a,b)=>b.m-a.m);
+  const rank=S.productos.map(p=>{const c=canal('tn')||S.canales[0];return {p,m:c?neto(c,p.precios[c.id]||0)-costo(p):0}}).sort((a,b)=>b.m-a.m).slice(0,6);
   $('#main').innerHTML=`
   <div class="top"><div><h1>Hola 👋</h1><div class="muted">Resumen de Esencia Hogar PIA</div></div></div>
+  ${!S.filamentos.length&&!S.productos.length?'<div class="note">Todavía no hay datos. Empezá por <b>Stock</b>: cargá tus filamentos e insumos. Después creá tus <b>Productos</b> con su receta y los precios.</div>':''}
   <div class="grid kpis">
-    <div class="card kpi"><div class="l">Ventas del mes</div><div class="v">${money(ventas)}</div><div class="s">${S.pedidos.length} pedidos</div></div>
+    <div class="card kpi"><div class="l">Ventas totales</div><div class="v">${money(ventas)}</div><div class="s">${S.pedidos.length} pedidos</div></div>
     <div class="card kpi"><div class="l">Ganancia estimada</div><div class="v">${money(gan)}</div><div class="s">después de comisiones y costos</div></div>
     <div class="card kpi"><div class="l">Pedidos en curso</div><div class="v">${pend}</div><div class="s">sin entregar</div></div>
     <div class="card kpi"><div class="l">Alertas de stock</div><div class="v" style="color:${al.length?'#b84a47':'#2d8a66'}">${al.length}</div><div class="s">${al.length?'reponer pronto':'todo en orden'}</div></div>
   </div>
   <div class="grid two">
     <div class="card"><h3 style="margin-bottom:8px">Hay que reponer</h3>
-      ${al.length?al.map(a=>`<div class="alert"><span>${esc(a.t)}</span><span class="tag bad">${esc(a.d)}</span></div>`).join(''):'<div class="muted">Nada por ahora.</div>'}
-    </div>
+      ${al.length?al.map(a=>`<div class="alert"><span>${esc(a.t)}</span><span class="tag bad">${esc(a.d)}</span></div>`).join(''):'<div class="muted">Nada por ahora.</div>'}</div>
     <div class="card"><h3 style="margin-bottom:8px">Productos más rentables <span class="muted">(Tienda Nube)</span></h3>
-      ${rank.map(r=>`<div class="alert"><span>${esc(r.p.nombre)} <span class="tag">${r.p.linea}</span></span><span class="pos">${money(r.m)}</span></div>`).join('')}
-    </div>
+      ${rank.length?rank.map(r=>`<div class="alert"><span>${esc(r.p.nombre)} <span class="tag">${r.p.linea}</span></span><span class="${r.m>=0?'pos':'neg'}">${money(r.m)}</span></div>`).join(''):'<div class="muted">Cargá productos para ver esto.</div>'}</div>
   </div>`;
 }
 
@@ -208,19 +221,19 @@ function vStock(){
   const tabs=[['filamentos','Filamentos'],['insumos','Insumos y materiales'],['terminados','Productos terminados']];
   let body='';
   if(t==='filamentos'){
-    body=`<div class="tw"><table><thead><tr><th>Filamento</th><th>Color</th><th>Queda</th><th></th><th class="r">Costo/kg</th><th></th></tr></thead><tbody>
+    body=!S.filamentos.length?vacio('Todavía no cargaste filamentos.'):`<div class="tw"><table><thead><tr><th>Filamento</th><th>Color</th><th>Queda</th><th></th><th class="r">Costo/kg</th><th></th></tr></thead><tbody>
     ${S.filamentos.map(f=>{const pc=Math.min(100,f.resta/f.rollo*100);return `<tr>
-      <td>${esc(f.marca)} · ${f.material}</td><td><span class="sw" style="background:${f.hex}"></span>${esc(f.color)}</td>
+      <td>${esc(f.marca)} · ${esc(f.material)}</td><td><span class="sw" style="background:${esc(f.hex)}"></span>${esc(f.color)}</td>
       <td style="min-width:120px"><div class="bar ${pc<20?'low':''}"><i style="width:${pc}%"></i></div></td>
       <td>${f.resta} g ${pc<20?'<span class="tag bad">poco</span>':''}</td><td class="r">${money(f.costoKg)}</td>
       <td class="r"><button class="btn ghost sm" onclick="editFil(${f.id})">Ajustar</button></td></tr>`}).join('')}</tbody></table></div>`;
   }else if(t==='insumos'){
-    body=`<div class="tw"><table><thead><tr><th>Material</th><th>Categoría</th><th>Cantidad</th><th class="r">Costo unit.</th><th></th></tr></thead><tbody>
-    ${S.insumos.map(i=>`<tr><td>${esc(i.nombre)}</td><td><span class="tag">${i.cat}</span></td>
-      <td><span class="qty"><button onclick="adj('insumos',${i.id},-1)">−</button><b>${i.cant} ${i.un}</b><button onclick="adj('insumos',${i.id},1)">+</button></span> ${i.cant<i.min?'<span class="tag bad">bajo</span>':''}</td>
-      <td class="r">${money(i.costo)}/${i.un}</td><td class="muted r">mín. ${i.min}</td></tr>`).join('')}</tbody></table></div>`;
+    body=!S.insumos.length?vacio('Todavía no cargaste materiales (cajas, esencias, arcilla, cera...).'):`<div class="tw"><table><thead><tr><th>Material</th><th>Categoría</th><th>Cantidad</th><th class="r">Costo unit.</th><th></th></tr></thead><tbody>
+    ${S.insumos.map(i=>`<tr><td>${esc(i.nombre)}</td><td><span class="tag">${esc(i.cat)}</span></td>
+      <td><span class="qty"><button onclick="adj('insumos',${i.id},-1)">−</button><b>${i.cant} ${esc(i.un)}</b><button onclick="adj('insumos',${i.id},1)">+</button></span> ${i.cant<i.min?'<span class="tag bad">bajo</span>':''}</td>
+      <td class="r">${money(i.costo)}/${esc(i.un)}</td><td class="muted r">mín. ${i.min}</td></tr>`).join('')}</tbody></table></div>`;
   }else{
-    body=`<div class="tw"><table><thead><tr><th>Producto</th><th>Línea</th><th>Unidades listas</th></tr></thead><tbody>
+    body=!S.productos.length?vacio('Primero creá tus productos en la pestaña Productos.'):`<div class="tw"><table><thead><tr><th>Producto</th><th>Línea</th><th>Unidades listas</th></tr></thead><tbody>
     ${S.productos.map(p=>`<tr><td>${esc(p.nombre)}</td><td><span class="tag">${p.linea}</span></td>
       <td><span class="qty"><button onclick="adj('productos',${p.id},-1,'stock')">−</button><b>${p.stock}</b><button onclick="adj('productos',${p.id},1,'stock')">+</button></span> ${p.stock<3?'<span class="tag warn">pocas</span>':''}</td></tr>`).join('')}</tbody></table></div>`;
   }
@@ -229,26 +242,27 @@ function vStock(){
     <div class="tabs">${tabs.map(([k,n])=>`<button class="${t===k?'on':''}" onclick="S.tabStock='${k}';render()">${n}</button>`).join('')}</div>
     <div class="card">${body}</div>`;
 }
-function adj(col,id,d,key='cant'){byId(S[col],id)[key]=Math.max(0,+(byId(S[col],id)[key]+d).toFixed(2));render()}
+function adj(col,id,d,key='cant'){const v=Math.max(0,+(byId(S[col],id)[key]+d).toFixed(2));act(()=>ok(sb.from(col).update({[key]:v}).eq('id',id)))}
 function openModal(html){$('#box').innerHTML=html;$('#modal').classList.add('on')}
 function closeModal(){$('#modal').classList.remove('on')}
-$('#modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal()});
+const num=id=>{const v=parseFloat($(id).value);return isFinite(v)?v:0};
 function editFil(id){const f=byId(S.filamentos,id);
   openModal(`<h2>Ajustar ${esc(f.material)} ${esc(f.color)}</h2><div class="form">
   <div><label>Gramos que quedan</label><input id="a1" type="number" value="${f.resta}"></div>
   <div><label>Costo por kg ($)</label><input id="a2" type="number" value="${f.costoKg}"></div></div>
   <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="saveFil(${id})">Guardar</button></div>`)}
-function saveFil(id){const f=byId(S.filamentos,id);f.resta=+$('#a1').value;f.costoKg=+$('#a2').value;closeModal();render()}
+function saveFil(id){const r=num('#a1'),c=num('#a2');closeModal();act(()=>ok(sb.from('filamentos').update({resta:r,costo_kg:c}).eq('id',id)))}
 function newFil(){openModal(`<h2>Nuevo filamento</h2><div class="form">
   <div><label>Marca</label><input id="a1"></div>
   <div><label>Material</label><select id="a2"><option>PLA</option><option>PETG</option><option>ABS</option><option>TPU</option></select></div>
   <div><label>Color</label><input id="a3"></div>
   <div><label>Tono</label><input id="a4" type="color" value="#cccccc" style="height:38px;padding:3px"></div>
-  <div><label>Costo por kg ($)</label><input id="a5" type="number" value="22000"></div>
+  <div><label>Costo por kg ($)</label><input id="a5" type="number" value="0"></div>
   <div><label>Gramos del rollo</label><input id="a6" type="number" value="1000"></div></div>
   <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="addFil()">Agregar</button></div>`)}
-function addFil(){if(!$('#a3').value.trim())return;const r=+$('#a6').value;
-  S.filamentos.push({id:Date.now(),marca:$('#a1').value||'—',material:$('#a2').value,color:$('#a3').value,hex:$('#a4').value,costoKg:+$('#a5').value,rollo:r,resta:r});closeModal();render()}
+function addFil(){const color=$('#a3').value.trim();if(!color)return toast('Poné el color del filamento.');
+  const row={marca:$('#a1').value.trim(),material:$('#a2').value,color,hex:$('#a4').value,costo_kg:num('#a5'),rollo:num('#a6')||1000};row.resta=row.rollo;
+  closeModal();act(()=>ok(sb.from('filamentos').insert(row)))}
 function newIns(){openModal(`<h2>Nuevo material</h2><div class="form">
   <div class="full"><label>Nombre</label><input id="a1"></div>
   <div><label>Categoría</label><select id="a2"><option>Packaging</option><option>Aromas</option><option>Cerámica</option><option>3D</option><option>Otros</option></select></div>
@@ -257,8 +271,9 @@ function newIns(){openModal(`<h2>Nuevo material</h2><div class="form">
   <div><label>Stock mínimo</label><input id="a5" type="number" value="0"></div>
   <div class="full"><label>Costo por unidad ($)</label><input id="a6" type="number" value="0"></div></div>
   <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="addIns()">Agregar</button></div>`)}
-function addIns(){if(!$('#a1').value.trim())return;
-  S.insumos.push({id:Date.now(),nombre:$('#a1').value,cat:$('#a2').value,un:$('#a3').value,cant:+$('#a4').value,min:+$('#a5').value,costo:+$('#a6').value});closeModal();render()}
+function addIns(){const nombre=$('#a1').value.trim();if(!nombre)return toast('Poné el nombre del material.');
+  const row={nombre,cat:$('#a2').value,un:$('#a3').value,cant:num('#a4'),min:num('#a5'),costo:num('#a6')};
+  closeModal();act(()=>ok(sb.from('insumos').insert(row)))}
 
 /* ---------- Productos ---------- */
 function vProductos(){
@@ -267,97 +282,154 @@ function vProductos(){
   $('#main').innerHTML=`<div class="top"><h1>Productos</h1><button class="btn" onclick="newProd()">+ Producto</button></div>
   <div class="note">El costo se calcula solo: filamento (gramos × costo/kg) + horas de impresión + insumos + costo directo. Si cambia el precio del filamento, cambia el costo de todos los productos.</div>
   <div class="tabs">${lineas.map(l=>`<button class="${S.tabProd===l?'on':''}" onclick="S.tabProd='${l}';render()">${l==='todas'?'Todas':l}</button>`).join('')}</div>
+  ${!list.length?'<div class="card">'+vacio('No hay productos en esta línea todavía.')+'</div>':''}
   <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
   ${list.map(p=>{const c=costo(p);
-    const det=[...p.fil.map(x=>{const f=byId(S.filamentos,x.id);return `${x.g} g ${f.color}`}),p.horas?`${p.horas} h impresión`:null,...p.ins.map(x=>{const i=byId(S.insumos,x.id);return `${x.q} ${i.un} ${i.nombre.toLowerCase()}`}),p.directo?`directo ${money(p.directo)}`:null].filter(Boolean);
+    const det=[...p.fil.map(x=>`${x.g} g ${esc(byId(S.filamentos,x.id)?.color||'?')}`),p.horas?`${p.horas} h impresión`:null,...p.ins.map(x=>{const i=byId(S.insumos,x.id);return `${x.q} ${esc(i?.un||'')} ${esc((i?.nombre||'?').toLowerCase())}`}),p.directo?`directo ${money(p.directo)}`:null].filter(Boolean);
     return `<div class="card"><div style="display:flex;justify-content:space-between;gap:8px"><h3>${esc(p.nombre)}</h3><span class="tag">${p.linea}</span></div>
       <div class="muted" style="margin:8px 0;min-height:36px">${det.join(' · ')}</div>
       <div style="display:flex;justify-content:space-between;align-items:end"><div><div class="muted">Costo</div><b style="font-family:var(--hf);font-size:22px">${money(c)}</b></div>
       <div class="r"><div class="muted">Listos</div><b>${p.stock} u.</b></div></div></div>`}).join('')}
   </div>`;
 }
-function newProd(){openModal(`<h2>Nuevo producto</h2><div class="form">
-  <div class="full"><label>Nombre</label><input id="a1"></div>
-  <div><label>Línea</label><select id="a2"><option>3D</option><option>Cerámica</option><option>Aromas</option></select></div>
-  <div><label>Unidades listas</label><input id="a3" type="number" value="0"></div>
-  <div><label>Filamento (opcional)</label><select id="a4"><option value="">—</option>${S.filamentos.map(f=>`<option value="${f.id}">${esc(f.material)} ${esc(f.color)}</option>`).join('')}</select></div>
-  <div><label>Gramos</label><input id="a5" type="number" value="0"></div>
-  <div><label>Horas de impresión</label><input id="a6" type="number" step="0.5" value="0"></div>
-  <div><label>Costo directo ($) · arcilla, cera, etc.</label><input id="a7" type="number" value="0"></div></div>
-  <div class="muted" style="margin-top:10px">Los insumos de la receta (cajas, esencias, etc.) se suman en la versión completa.</div>
-  <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="addProd()">Agregar</button></div>`)}
-function addProd(){if(!$('#a1').value.trim())return;
-  const fid=$('#a4').value;
-  S.productos.push({id:Date.now(),nombre:$('#a1').value,linea:$('#a2').value,stock:+$('#a3').value,fil:fid&&+$('#a5').value?[{id:+fid,g:+$('#a5').value}]:[],horas:+$('#a6').value,ins:[],directo:+$('#a7').value,precios:{ml:0,tn:0,ig:0}});
-  closeModal();render()}
+let dp={fil:[],ins:[]};
+function newProd(){dp={fil:[],ins:[],v:{}};prodModal()}
+function readProd(){
+  dp.v={nombre:$('#p1').value,linea:$('#p2').value,stock:$('#p3').value,horas:$('#p6').value,directo:$('#p7').value};
+  dp.fil=[...document.querySelectorAll('.lf')].map(r=>({id:+r.querySelector('select').value,g:parseFloat(r.querySelector('input').value)||0}));
+  dp.ins=[...document.querySelectorAll('.li')].map(r=>({id:+r.querySelector('select').value,q:parseFloat(r.querySelector('input').value)||0}));
+}
+function prodModal(){
+  const v=dp.v||{};
+  const optF=S.filamentos.map(f=>`<option value="${f.id}">${esc(f.material)} ${esc(f.color)}</option>`).join('');
+  const optI=S.insumos.map(i=>`<option value="${i.id}">${esc(i.nombre)} (${esc(i.un)})</option>`).join('');
+  const sel=(opts,id)=>opts.replace(`value="${id}"`,`value="${id}" selected`);
+  openModal(`<h2>Nuevo producto</h2><div class="form">
+  <div class="full"><label>Nombre</label><input id="p1" value="${esc(v.nombre||'')}"></div>
+  <div><label>Línea</label><select id="p2">${['3D','Cerámica','Aromas'].map(l=>`<option ${v.linea===l?'selected':''}>${l}</option>`).join('')}</select></div>
+  <div><label>Unidades listas</label><input id="p3" type="number" value="${v.stock||0}"></div>
+  <div><label>Horas de impresión</label><input id="p6" type="number" step="0.5" value="${v.horas||0}"></div>
+  <div><label>Costo directo ($) · arcilla, cera, etc.</label><input id="p7" type="number" value="${v.directo||0}"></div></div>
+  <div style="margin-top:14px"><label>Filamentos (gramos por unidad)</label>
+  ${dp.fil.map((l,ix)=>`<div class="line lf"><select>${sel(optF,l.id)}</select><input type="number" min="0" value="${l.g}" placeholder="g"><button class="rm" onclick="readProd();dp.fil.splice(${ix},1);prodModal()">×</button></div>`).join('')}
+  ${S.filamentos.length?`<button class="btn ghost sm" onclick="readProd();dp.fil.push({id:${S.filamentos[0].id},g:0});prodModal()">+ filamento</button>`:'<span class="muted">Cargá filamentos en Stock para usarlos acá.</span>'}</div>
+  <div style="margin-top:14px"><label>Insumos (cantidad por unidad)</label>
+  ${dp.ins.map((l,ix)=>`<div class="line li"><select>${sel(optI,l.id)}</select><input type="number" min="0" step="any" value="${l.q}" placeholder="cant."><button class="rm" onclick="readProd();dp.ins.splice(${ix},1);prodModal()">×</button></div>`).join('')}
+  ${S.insumos.length?`<button class="btn ghost sm" onclick="readProd();dp.ins.push({id:${S.insumos[0].id},q:1});prodModal()">+ insumo</button>`:'<span class="muted">Cargá materiales en Stock para usarlos acá.</span>'}</div>
+  <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="addProd()">Guardar producto</button></div>`);
+}
+function addProd(){
+  readProd();const v=dp.v;const nombre=v.nombre.trim();if(!nombre)return toast('Poné el nombre del producto.');
+  const merge=(arr,k)=>Object.values(arr.filter(x=>x[k]>0).reduce((m,x)=>{m[x.id]=m[x.id]?{id:x.id,[k]:m[x.id][k]+x[k]}:{...x};return m},{}));
+  const fil=merge(dp.fil,'g'),ins=merge(dp.ins,'q');
+  closeModal();
+  act(async()=>{
+    const [p]=await ok(sb.from('productos').insert({nombre,linea:v.linea,stock:Math.max(0,parseInt(v.stock)||0),horas:parseFloat(v.horas)||0,directo:parseFloat(v.directo)||0}).select());
+    if(fil.length)await ok(sb.from('producto_filamentos').insert(fil.map(x=>({producto_id:p.id,filamento_id:x.id,g:x.g}))));
+    if(ins.length)await ok(sb.from('producto_insumos').insert(ins.map(x=>({producto_id:p.id,insumo_id:x.id,q:x.q}))));
+    if(S.canales.length)await ok(sb.from('precios').insert(S.canales.map(c=>({producto_id:p.id,canal_id:c.id,precio:0}))));
+  });
+}
 
 /* ---------- Pedidos ---------- */
 function vPedidos(){
   $('#main').innerHTML=`<div class="top"><h1>Pedidos</h1><button class="btn" onclick="newPed()">+ Pedido</button></div>
-  <div class="card tw"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Canal</th><th>Productos</th><th class="r">Total</th><th class="r">Ganancia</th><th>Estado</th></tr></thead><tbody>
-  ${[...S.pedidos].reverse().map(o=>{const g=gananciaPedido(o);return `<tr><td>${o.fecha.slice(5).split('-').reverse().join('/')}</td><td>${esc(o.cliente)}</td><td>${canal(o.canal).nombre}</td>
-    <td>${o.items.map(i=>`${i.q}× ${esc(byId(S.productos,i.p).nombre)}`).join('<br>')}${o.faltan?`<br><span class="tag warn">a producir: ${o.faltan}</span>`:''}</td>
+  <div class="card tw">${!S.pedidos.length?vacio('Todavía no hay pedidos.'):`<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Canal</th><th>Productos</th><th class="r">Total</th><th class="r">Ganancia</th><th>Estado</th></tr></thead><tbody>
+  ${[...S.pedidos].reverse().map(o=>{const g=gananciaPedido(o);return `<tr><td>${o.fecha.slice(5).split('-').reverse().join('/')}</td><td>${esc(o.cliente)}</td><td>${esc(canal(o.canal)?.nombre||'—')}</td>
+    <td>${o.items.map(i=>`${i.q}× ${esc(byId(S.productos,i.p)?.nombre||'?')}`).join('<br>')}${o.faltan?`<br><span class="tag warn">a producir: ${o.faltan}</span>`:''}</td>
     <td class="r">${money(totalPedido(o))}</td><td class="r ${g>=0?'pos':'neg'}">${money(g)}</td>
     <td><button class="tag ${o.estado==='Entregado'?'ok':o.estado==='Enviado'?'info':o.estado==='Preparando'?'warn':''}" style="border:0;cursor:pointer" onclick="nextEstado(${o.id})" title="Click para avanzar">${o.estado} ›</button></td></tr>`}).join('')}
-  </tbody></table></div>`;
+  </tbody></table>`}</div>`;
 }
-function nextEstado(id){const o=byId(S.pedidos,id);const i=ESTADOS.indexOf(o.estado);o.estado=ESTADOS[(i+1)%ESTADOS.length];render()}
-let draft=[{p:1,q:1}];
-function newPed(){draft=[{p:S.productos[0].id,q:1}];pedModal()}
-function pedModal(keep){
-  const cv=keep||{c:'',ca:'ig'};
-  const faltas=draft.map(l=>{const p=byId(S.productos,l.p);return Math.max(0,l.q-p.stock)});
+function nextEstado(id){const o=byId(S.pedidos,id);const e=ESTADOS[(ESTADOS.indexOf(o.estado)+1)%ESTADOS.length];act(()=>ok(sb.from('pedidos').update({estado:e}).eq('id',id)))}
+let draft=[];let pv={c:'',ca:''};
+function newPed(){
+  if(!S.productos.length)return toast('Primero creá al menos un producto.');
+  if(!S.canales.length)return toast('No hay canales de venta cargados.');
+  draft=[{p:S.productos[0].id,q:1}];pv={c:'',ca:S.canales[S.canales.length-1].id};pedModal()}
+function pedRead(){pv={c:$('#pc').value,ca:$('#pca').value}}
+function pedModal(){
+  const faltas=draft.map(l=>Math.max(0,l.q-byId(S.productos,l.p).stock));
   const aviso=draft.map((l,ix)=>{
     if(!faltas[ix])return '';
     const p=byId(S.productos,l.p);
     const need={};p.fil.forEach(x=>need[x.id]=(need[x.id]||0)+x.g*faltas[ix]);
-    const lack=Object.entries(need).filter(([id,g])=>byId(S.filamentos,id).resta<g).map(([id,g])=>`${byId(S.filamentos,id).color}: faltan ${g-byId(S.filamentos,id).resta} g`);
+    const lack=Object.entries(need).filter(([id,g])=>byId(S.filamentos,id).resta<g).map(([id,g])=>`${esc(byId(S.filamentos,id).color)}: faltan ${g-byId(S.filamentos,id).resta} g`);
     return `<div class="note" style="background:#fbecd8">Faltan ${faltas[ix]} u. de «${esc(p.nombre)}» para producir.${p.fil.length?(lack.length?' No alcanza el filamento → '+lack.join(', '):' El filamento alcanza.'):''}</div>`}).join('');
+  const total=draft.reduce((a,l)=>a+l.q*(byId(S.productos,l.p).precios[pv.ca]||0),0);
   openModal(`<h2>Nuevo pedido</h2><div class="form">
-    <div><label>Cliente / referencia</label><input id="pc" value="${esc(cv.c)}"></div>
-    <div><label>Canal de venta</label><select id="pca" onchange="pedModal({c:$('#pc').value,ca:this.value})">${S.canales.map(c=>`<option value="${c.id}" ${c.id===cv.ca?'selected':''}>${c.nombre}</option>`).join('')}</select></div></div>
+    <div><label>Cliente / referencia</label><input id="pc" value="${esc(pv.c)}"></div>
+    <div><label>Canal de venta</label><select id="pca" onchange="pedRead();pedModal()">${S.canales.map(c=>`<option value="${c.id}" ${c.id===pv.ca?'selected':''}>${esc(c.nombre)}</option>`).join('')}</select></div></div>
     <div style="margin-top:14px"><label>Productos</label>
-    ${draft.map((l,ix)=>`<div class="line"><select onchange="draft[${ix}].p=+this.value;pedModal({c:$('#pc').value,ca:$('#pca').value})">${S.productos.map(p=>`<option value="${p.id}" ${p.id===l.p?'selected':''}>${esc(p.nombre)} (${p.stock} listos)</option>`).join('')}</select>
-      <input type="number" min="1" value="${l.q}" onchange="draft[${ix}].q=Math.max(1,+this.value);pedModal({c:$('#pc').value,ca:$('#pca').value})"><button class="qty" style="border:0;background:none;color:var(--danger);font-size:18px" onclick="draft.splice(${ix},1);if(!draft.length)draft.push({p:S.productos[0].id,q:1});pedModal({c:$('#pc').value,ca:$('#pca').value})">×</button></div>`).join('')}
-    <button class="btn ghost sm" onclick="draft.push({p:S.productos[0].id,q:1});pedModal({c:$('#pc').value,ca:$('#pca').value})">+ otro producto</button></div>
+    ${draft.map((l,ix)=>`<div class="line"><select onchange="pedRead();draft[${ix}].p=+this.value;pedModal()">${S.productos.map(p=>`<option value="${p.id}" ${p.id===l.p?'selected':''}>${esc(p.nombre)} (${p.stock} listos)</option>`).join('')}</select>
+      <input type="number" min="1" value="${l.q}" onchange="pedRead();draft[${ix}].q=Math.max(1,parseInt(this.value)||1);pedModal()"><button class="rm" onclick="pedRead();draft.splice(${ix},1);if(!draft.length)draft.push({p:S.productos[0].id,q:1});pedModal()">×</button></div>`).join('')}
+    <button class="btn ghost sm" onclick="pedRead();draft.push({p:S.productos[0].id,q:1});pedModal()">+ otro producto</button></div>
     ${aviso}
-    <div style="margin-top:12px"><b>Total: ${money(draft.reduce((a,l)=>a+l.q*(byId(S.productos,l.p).precios[cv.ca]||0),0))}</b></div>
+    <div style="margin-top:12px"><b>Total: ${money(total)}</b></div>
     <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="savePed()">Guardar pedido</button></div>`);
 }
 function savePed(){
-  const ca=$('#pca').value;let faltan=0;
-  draft.forEach(l=>{const p=byId(S.productos,l.p);const usa=Math.min(p.stock,l.q);p.stock-=usa;faltan+=l.q-usa});
-  S.pedidos.push({id:Date.now(),fecha:new Date().toISOString().slice(0,10),cliente:$('#pc').value||'Sin nombre',canal:ca,items:draft.map(l=>({p:l.p,q:l.q})),estado:faltan?'Pendiente':'Preparando',faltan:faltan||0});
-  closeModal();S.view='pedidos';render();
+  pedRead();
+  const merged=Object.values(draft.reduce((m,l)=>{m[l.p]=m[l.p]?{p:l.p,q:m[l.p].q+l.q}:{...l};return m},{}));
+  closeModal();S.view='pedidos';
+  act(()=>ok(sb.rpc('crear_pedido',{p_cliente:pv.c,p_canal:pv.ca,p_items:merged})));
 }
 
 /* ---------- Precios y canales ---------- */
+function setPrecio(pid,cid,val){act(()=>ok(sb.from('precios').upsert({producto_id:pid,canal_id:cid,precio:Math.max(0,parseFloat(val)||0)},{onConflict:'producto_id,canal_id'})))}
+function setCanal(id,k,val){act(()=>ok(sb.from('canales').update({[k]:Math.max(0,parseFloat(val)||0)}).eq('id',id)))}
+function setConf(k,val){act(()=>ok(sb.from('config').update({[k]:Math.max(0,parseFloat(val)||0)}).eq('id',1)))}
 function vPrecios(){
   $('#main').innerHTML=`<div class="top"><h1>Precios y canales</h1></div>
-  <div class="note">Las comisiones de ejemplo hay que ajustarlas a lo que realmente te cobra cada canal. El margen es lo que te queda después de comisión, cargo fijo y costo.</div>
+  <div class="note">Revisá las comisiones de cada canal: tienen que ser las que realmente te cobran. «Te queda» descuenta comisión, cargo fijo y costo.</div>
   <div class="grid two" style="margin-bottom:16px">
     <div class="card"><h3 style="margin-bottom:10px">Canales</h3>
       <table><thead><tr><th>Canal</th><th class="r">Comisión %</th><th class="r">Cargo fijo $</th></tr></thead><tbody>
-      ${S.canales.map(c=>`<tr><td>${c.nombre}</td><td class="r"><input class="n" type="number" step="0.1" value="${c.com}" onchange="canal('${c.id}').com=+this.value;vPrecios()"></td><td class="r"><input class="n" type="number" value="${c.fijo}" onchange="canal('${c.id}').fijo=+this.value;vPrecios()"></td></tr>`).join('')}
+      ${S.canales.map(c=>`<tr><td>${esc(c.nombre)}</td><td class="r"><input class="n" type="number" step="0.1" value="${c.com}" onchange="setCanal('${c.id}','comision',this.value)"></td><td class="r"><input class="n" type="number" value="${c.fijo}" onchange="setCanal('${c.id}','fijo',this.value)"></td></tr>`).join('')}
       </tbody></table></div>
     <div class="card"><h3 style="margin-bottom:10px">Parámetros</h3><div class="form">
-      <div><label>Costo por hora de impresión ($)</label><input type="number" value="${S.config.costoHora}" onchange="S.config.costoHora=+this.value;vPrecios()"></div>
-      <div><label>Margen objetivo (%)</label><input type="number" value="${S.config.margenObjetivo}" onchange="S.config.margenObjetivo=+this.value;vPrecios()"></div></div></div>
+      <div><label>Costo por hora de impresión ($)</label><input type="number" value="${S.config.costoHora}" onchange="setConf('costo_hora',this.value)"></div>
+      <div><label>Margen objetivo (%)</label><input type="number" value="${S.config.margenObjetivo}" onchange="setConf('margen_objetivo',this.value)"></div></div></div>
   </div>
-  ${S.canales.map(c=>`<div class="card tw" style="margin-bottom:14px"><h3 style="margin-bottom:8px">${c.nombre}</h3>
+  ${!S.productos.length?'<div class="card">'+vacio('Creá productos para poder ponerles precio.')+'</div>':''}
+  ${S.productos.length?S.canales.map(c=>`<div class="card tw" style="margin-bottom:14px"><h3 style="margin-bottom:8px">${esc(c.nombre)}</h3>
     <table><thead><tr><th>Producto</th><th class="r">Costo</th><th class="r">Precio de venta</th><th class="r">Te queda</th><th class="r">Margen</th><th class="r">Sugerido</th></tr></thead><tbody>
-    ${S.productos.map(p=>{const pr=p.precios[c.id]||0;const co=costo(p);const n=neto(p,c,pr)-co;const m=pr?n/pr*100:0;const sg=sugerido(p,c);
+    ${S.productos.map(p=>{const pr=p.precios[c.id]||0;const co=costo(p);const n=neto(c,pr)-co;const m=pr?n/pr*100:0;const sg=Math.round(sugerido(p,c)/100)*100;
       return `<tr><td>${esc(p.nombre)}</td><td class="r">${money(co)}</td>
-      <td class="r"><input class="n" type="number" value="${pr}" onchange="byId(S.productos,${p.id}).precios['${c.id}']=+this.value;vPrecios()"></td>
+      <td class="r"><input class="n" type="number" value="${pr}" onchange="setPrecio(${p.id},'${c.id}',this.value)"></td>
       <td class="r ${n>=0?'pos':'neg'}">${pr?money(n):'—'}</td>
       <td class="r"><span class="tag ${m>=S.config.margenObjetivo?'ok':m>=20?'warn':'bad'}">${pr?m.toFixed(0)+'%':'—'}</span></td>
-      <td class="r"><button class="btn ghost sm" onclick="byId(S.productos,${p.id}).precios['${c.id}']=Math.round(${sg}/100)*100;vPrecios()">${money(Math.round(sg/100)*100)}</button></td></tr>`}).join('')}
-    </tbody></table></div>`).join('')}`;
+      <td class="r"><button class="btn ghost sm" onclick="setPrecio(${p.id},'${c.id}',${sg})">${money(sg)}</button></td></tr>`}).join('')}
+    </tbody></table></div>`).join(''):''}`;
 }
 
-S.view=(location.hash||'#panel').slice(1);if(!VIEWS.some(v=>v[0]===S.view))S.view='panel';
-window.addEventListener('hashchange',()=>{const h=location.hash.slice(1);if(VIEWS.some(v=>v[0]===h)&&h!==S.view){S.view=h;render()}});
-render();
+/* ---------- Ingreso ---------- */
+function showLogin(msg){$('#app').style.display='none';$('#login').style.display='flex';$('#lerr').textContent=msg||''}
+async function entrar(){
+  const email=$('#le').value.trim(),pass=$('#lp').value;if(!email||!pass)return;
+  $('#lb').disabled=true;$('#lerr').textContent='';
+  const {error}=await sb.auth.signInWithPassword({email,password:pass});
+  $('#lb').disabled=false;
+  if(error)return $('#lerr').textContent='Correo o contraseña incorrectos.';
+  $('#lp').value='';await iniciar();
+}
+async function salir(){await sb.auth.signOut();S.email='';showLogin()}
+async function iniciar(){
+  const {data:{session}}=await sb.auth.getSession();
+  if(!session)return showLogin();
+  const {data:permitido}=await sb.rpc('is_allowed');
+  if(!permitido){await sb.auth.signOut();return showLogin('Ese correo no está autorizado para usar PIA.')}
+  S.email=session.user.email;
+  try{await load()}catch(e){return showLogin('No se pudieron cargar los datos: '+e.message)}
+  $('#login').style.display='none';$('#app').style.display='grid';
+  const h=(location.hash||'#panel').slice(1);S.view=VIEWS.some(v=>v[0]===h)?h:'panel';
+  render();
+}
+$('#modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal()});
+$('#lp').addEventListener('keydown',e=>{if(e.key==='Enter')entrar()});
+window.addEventListener('hashchange',()=>{const h=location.hash.slice(1);if(S.email&&VIEWS.some(v=>v[0]===h)&&h!==S.view){S.view=h;render()}});
+iniciar();
+
 </script>
 </body>
 </html>
