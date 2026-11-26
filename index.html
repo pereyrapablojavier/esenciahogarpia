@@ -136,6 +136,7 @@ const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
 const S={config:{costoHora:350,margenObjetivo:40},canales:[],filamentos:[],insumos:[],productos:[],pedidos:[],
   tabStock:'filamentos',tabProd:'todas',view:'panel',email:'',q:'',tagsSel:[],stockF:'todos',group:'ninguno',aq:'',aLinea:'todas',aStock:'todos',aTags:[]};
+const STOCK_INICIAL=10; // unidades listas con las que arranca todo producto o variante nuevo
 const ESTADOS=['Pendiente','Preparando','Enviado','Entregado'];
 const $=s=>document.querySelector(s);
 const money=n=>'$ '+Math.round(n).toLocaleString('es-AR');
@@ -433,7 +434,7 @@ function editProd(id){const p=byId(S.productos,id);
   dp={id,tags:[...p.tags],fil:p.fil.map(x=>({...x})),ins:p.ins.map(x=>({...x})),v:{nombre:p.nombre,variante:p.variante,linea:p.linea,stock:p.stock,horas:p.horas,directo:p.directo}};prodModal()}
 /* Nueva variante: arranca con la receta y los precios de la variante de origen, para solo ajustar lo que cambia. */
 function newVariante(id){const p=byId(S.productos,id);
-  dp={id:null,copia:p.precios,tags:[...p.tags],fil:p.fil.map(x=>({...x})),ins:p.ins.map(x=>({...x})),v:{nombre:p.nombre,variante:'',linea:p.linea,stock:0,horas:p.horas,directo:p.directo}};prodModal()}
+  dp={id:null,copia:p.precios,tags:[...p.tags],fil:p.fil.map(x=>({...x})),ins:p.ins.map(x=>({...x})),v:{nombre:p.nombre,variante:'',linea:p.linea,stock:STOCK_INICIAL,horas:p.horas,directo:p.directo}};prodModal()}
 function askArchive(){const p=byId(S.productos,dp.id);
   openModal(`<h2>¿Archivar «${esc(nom(p))}»?</h2><p class="muted">Deja de aparecer en productos, stock, precios y pedidos nuevos. Los pedidos que ya hiciste con este producto se conservan tal cual, con su precio y costo de ese momento.</p>
   <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" style="background:#b84a47" onclick="doArchive(${dp.id})">Sí, archivar</button></div>`)}
@@ -455,7 +456,7 @@ function prodModal(){
   <div class="full"><label>Nombre</label><input id="p1" value="${esc(v.nombre||'')}"></div>
   <div class="full"><label>Variante (color, tamaño, aroma...)</label><input id="p4" value="${esc(v.variante||'')}" placeholder="Ej: Verde / Grande · dejalo vacío si no tiene variantes"></div>
   <div><label>Línea</label><select id="p2">${['3D','Cerámica','Aromas'].map(l=>`<option ${v.linea===l?'selected':''}>${l}</option>`).join('')}</select></div>
-  ${dp.id?`<div><label>Unidades listas</label><div class="muted" style="padding:9px 2px">${v.stock} · se ajusta en Stock</div><input id="p3" type="hidden" value="${v.stock}"></div>`:`<div><label>Unidades listas</label><input id="p3" type="number" value="${v.stock||0}"></div>`}
+  ${dp.id?`<div><label>Unidades listas</label><div class="muted" style="padding:9px 2px">${v.stock} · se ajusta en Stock</div><input id="p3" type="hidden" value="${v.stock}"></div>`:`<div><label>Unidades listas</label><input id="p3" type="number" value="${v.stock!==undefined&&v.stock!==''?v.stock:STOCK_INICIAL}"></div>`}
   <div><label>Horas de impresión</label><input id="p6" type="number" step="0.5" value="${v.horas||0}"></div>
   <div><label>Costo directo ($) · arcilla, cera, etc.</label><input id="p7" type="number" value="${v.directo||0}"></div></div>
   <div style="margin-top:14px"><label>Filamentos (gramos por unidad)</label>
