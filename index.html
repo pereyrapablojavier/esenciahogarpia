@@ -322,7 +322,9 @@ function vProductos(){
   const lineas=['todas','3D','Cerámica','Aromas'];
   const list=activos().filter(p=>S.tabProd==='todas'||p.linea===S.tabProd);
   const fam={};list.forEach(p=>(fam[p.nombre]=fam[p.nombre]||[]).push(p));
-  $('#main').innerHTML=`<div class="top"><h1>Productos</h1><button class="btn" onclick="newProd()">+ Producto</button></div>
+  const arch=S.productos.filter(p=>!p.activo);
+  if(S.verArch)return vArchivados(arch);
+  $('#main').innerHTML=`<div class="top"><h1>Productos</h1><span style="display:flex;gap:8px;flex-wrap:wrap">${arch.length?`<button class="btn ghost" onclick="S.verArch=true;render()">Archivados (${arch.length})</button>`:''}<button class="btn" onclick="newProd()">+ Producto</button></span></div>
   <div class="note">Cada variante (color, tamaño, aroma...) tiene su propia receta, costo, stock y precios. El costo se calcula solo: filamento + horas de impresión + insumos + costo directo.</div>
   <div class="tabs">${lineas.map(l=>`<button class="${S.tabProd===l?'on':''}" onclick="S.tabProd='${l}';render()">${l==='todas'?'Todas':l}</button>`).join('')}</div>
   ${!list.length?'<div class="card">'+vacio('No hay productos en esta línea todavía.')+'</div>':''}
@@ -336,6 +338,18 @@ function vProductos(){
     <div style="margin-top:10px"><button class="btn ghost sm" onclick="newVariante(${vs[0].id})">+ variante</button></div></div>`).join('')}
   </div>`;
 }
+/* Productos archivados: se pueden ver y restaurar (conservan su receta, precios y stock). */
+function vArchivados(arch){
+  $('#main').innerHTML=`<div class="top"><h1>Productos archivados</h1><button class="btn ghost" onclick="S.verArch=false;render()">← Volver a productos</button></div>
+  <div class="note">Los archivados no aparecen en stock, precios ni pedidos nuevos, pero sus pedidos viejos se conservan. Restaurá uno para volver a usarlo: vuelve con su receta, sus precios y su stock.</div>
+  <div class="card tw">${!arch.length?vacio('No hay productos archivados.'):`<table><thead><tr><th>Producto</th><th>Línea</th><th class="r">Costo actual</th><th class="r">Stock</th><th></th></tr></thead><tbody>
+  ${arch.map(p=>`<tr><td>${esc(nom(p))}</td><td><span class="tag">${p.linea}</span></td><td class="r">${money(costo(p))}</td><td class="r">${p.stock} u.</td>
+    <td class="r"><button class="btn sm" onclick="restaurar(${p.id})">Restaurar</button></td></tr>`).join('')}</tbody></table>`}</div>`;
+}
+function restaurar(id){const p=byId(S.productos,id);
+  const igual=S.productos.some(x=>x.activo&&x.id!==id&&x.nombre.trim().toLowerCase()===p.nombre.trim().toLowerCase()&&(x.variante||'').trim().toLowerCase()===(p.variante||'').trim().toLowerCase());
+  if(igual)return toast('Ya hay un producto activo igual a «'+nom(p)+'». Cambiale el nombre o la variante a uno de los dos antes de restaurar.');
+  act(()=>ok(sb.from('productos').update({activo:true}).eq('id',id)))}
 let dp={id:null,fil:[],ins:[],v:{}};
 function newProd(){dp={id:null,fil:[],ins:[],v:{}};prodModal()}
 function editProd(id){const p=byId(S.productos,id);
