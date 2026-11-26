@@ -100,6 +100,8 @@ label{font-size:12px;color:var(--gray);display:block;margin-bottom:3px}
 .foot button{margin-top:8px}
 #out{display:none;position:fixed;top:10px;right:12px;z-index:9}
 @media(max-width:820px){#out{display:block}}
+.tagc{border:1px solid var(--line);background:#fff;color:var(--gray);border-radius:99px;padding:3px 11px;font-size:12px;cursor:pointer;font-family:inherit}
+.tagc.on{background:var(--primary);border-color:var(--primary);color:#fff}
 </style>
 </head>
 <body>
@@ -133,7 +135,7 @@ const SUPABASE_KEY='sb_publishable_vzXjLm2Y152Gk2F1rjMD-Q_AJVKVd_m';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
 const S={config:{costoHora:350,margenObjetivo:40},canales:[],filamentos:[],insumos:[],productos:[],pedidos:[],
-  tabStock:'filamentos',tabProd:'todas',view:'panel',email:''};
+  tabStock:'filamentos',tabProd:'todas',view:'panel',email:'',q:'',tagsSel:[],stockF:'todos',group:'ninguno'};
 const ESTADOS=['Pendiente','Preparando','Enviado','Entregado'];
 const $=s=>document.querySelector(s);
 const money=n=>'$ '+Math.round(n).toLocaleString('es-AR');
@@ -159,7 +161,7 @@ async function load(){
   S.canales=can.map(c=>({id:c.id,nombre:c.nombre,com:+c.comision,fijo:+c.fijo}));
   S.filamentos=fil.map(f=>({id:f.id,marca:f.marca,material:f.material,color:f.color,hex:f.hex,costoKg:+f.costo_kg,rollo:+f.rollo,resta:+f.resta})).sort((a,b)=>a.id-b.id);
   S.insumos=ins.map(i=>({id:i.id,nombre:i.nombre,cat:i.cat,un:i.un,cant:+i.cant,min:+i.min,costo:+i.costo})).sort((a,b)=>a.id-b.id);
-  S.productos=pro.map(p=>({id:p.id,nombre:p.nombre,linea:p.linea,horas:+p.horas,directo:+p.directo,stock:p.stock,activo:p.activo!==false,variante:p.variante||'',
+  S.productos=pro.map(p=>({id:p.id,nombre:p.nombre,linea:p.linea,horas:+p.horas,directo:+p.directo,stock:p.stock,activo:p.activo!==false,variante:p.variante||'',tags:p.tags||[],
     fil:pf.filter(x=>x.producto_id===p.id).map(x=>({id:x.filamento_id,g:+x.g})),
     ins:pi.filter(x=>x.producto_id===p.id).map(x=>({id:x.insumo_id,q:+x.q})),
     precios:Object.fromEntries(pr.filter(x=>x.producto_id===p.id).map(x=>[x.canal_id,+x.precio]))})).sort((a,b)=>a.id-b.id);
@@ -318,25 +320,68 @@ function addIns(){const nombre=$('#a1').value.trim();if(!nombre)return toast('Po
   closeModal();act(()=>ok(sb.from('insumos').insert(row)))}
 
 /* ---------- Productos ---------- */
-function vProductos(){
-  const lineas=['todas','3D','Cerámica','Aromas'];
-  const list=activos().filter(p=>S.tabProd==='todas'||p.linea===S.tabProd);
-  const fam={};list.forEach(p=>(fam[p.nombre]=fam[p.nombre]||[]).push(p));
-  const arch=S.productos.filter(p=>!p.activo);
-  if(S.verArch)return vArchivados(arch);
-  $('#main').innerHTML=`<div class="top"><h1>Productos</h1><span style="display:flex;gap:8px;flex-wrap:wrap">${arch.length?`<button class="btn ghost" onclick="S.verArch=true;render()">Archivados (${arch.length})</button>`:''}<button class="btn" onclick="newProd()">+ Producto</button></span></div>
-  <div class="note">Cada variante (color, tamaño, aroma...) tiene su propia receta, costo, stock y precios. El costo se calcula solo: filamento + horas de impresión + insumos + costo directo.</div>
-  <div class="tabs">${lineas.map(l=>`<button class="${S.tabProd===l?'on':''}" onclick="S.tabProd='${l}';render()">${l==='todas'?'Todas':l}</button>`).join('')}</div>
-  ${!list.length?'<div class="card">'+vacio('No hay productos en esta línea todavía.')+'</div>':''}
-  <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr))">
-  ${Object.entries(fam).map(([nombre,vs])=>`<div class="card"><div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:6px"><h3>${esc(nombre)}</h3><span class="tag">${vs[0].linea}</span></div>
+/* ---- Tags, filtros y agrupación ---- */
+const normTag=t=>t.toLowerCase().replace(/[^\p{L}\p{N} _-]/gu,'').replace(/\s+/g,' ').trim().slice(0,24);
+const hayFiltros=()=>!!(S.q.trim()||S.tagsSel.length||S.stockF!=='todos'||S.tabProd!=='todas');
+function limpiarFiltros(){S.q='';S.tagsSel=[];S.stockF='todos';S.tabProd='todas';render()}
+function filtroTagIdx(i){const t=S._tagsUso[i];S.tagsSel=S.tagsSel.includes(t)?S.tagsSel.filter(x=>x!==t):[...S.tagsSel,t];render()}
+function filtroTag(t){if(!S.tagsSel.includes(t))S.tagsSel=[...S.tagsSel,t];render()}
+function filtrar(){
+  const q=S.q.trim().toLowerCase();
+  return activos().filter(p=>{
+    if(S.tabProd!=='todas'&&p.linea!==S.tabProd)return false;
+    if(S.tagsSel.some(t=>!p.tags.includes(t)))return false;
+    if(S.stockF==='con'&&p.stock<=0)return false;
+    if(S.stockF==='sin'&&p.stock>0)return false;
+    if(S.stockF==='poco'&&p.stock>=3)return false;
+    if(q&&!(nom(p)+' '+p.linea+' '+p.tags.join(' ')).toLowerCase().includes(q))return false;
+    return true});
+}
+function famCard(nombre,vs){
+  const tags=[...new Set(vs.flatMap(p=>p.tags))].sort((a,b)=>a.localeCompare(b,'es'));
+  return `<div class="card"><div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:6px"><h3>${esc(nombre)}</h3><span class="tag">${vs[0].linea}</span></div>
+    ${tags.length?`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px">${tags.map(t=>`<button class="tagc" onclick="filtroTag('${esc(t)}')">#${esc(t)}</button>`).join('')}</div>`:''}
     ${vs.map(p=>{
       const det=[...p.fil.map(x=>`${x.g} g ${esc(byId(S.filamentos,x.id)?.color||'?')}`),p.horas?`${p.horas} h`:null,...p.ins.map(x=>{const i=byId(S.insumos,x.id);return `${x.q} ${esc(i?.un||'')} ${esc((i?.nombre||'?').toLowerCase())}`}),p.directo?`directo ${money(p.directo)}`:null].filter(Boolean);
       return `<div class="alert" style="align-items:center;gap:10px"><div style="flex:1;min-width:0"><b>${esc(p.variante||'Única')}</b><div class="muted">${det.join(' · ')||'sin receta'}</div></div>
       <div class="r" style="white-space:nowrap"><div class="muted">${p.stock} u. listas</div><b>${money(costo(p))}</b></div>
       <button class="btn ghost sm" onclick="editProd(${p.id})">Editar</button></div>`}).join('')}
-    <div style="margin-top:10px"><button class="btn ghost sm" onclick="newVariante(${vs[0].id})">+ variante</button></div></div>`).join('')}
-  </div>`;
+    <div style="margin-top:10px"><button class="btn ghost sm" onclick="newVariante(${vs[0].id})">+ variante</button></div></div>`;
+}
+function drawProds(){
+  const list=filtrar();
+  const fam=arr=>{const f={};arr.forEach(p=>(f[p.nombre]=f[p.nombre]||[]).push(p));return Object.entries(f)};
+  let secciones;
+  if(S.group==='tag'){
+    const m={};list.forEach(p=>(p.tags.length?p.tags:['\u0000']).forEach(t=>(m[t]=m[t]||[]).push(p)));
+    secciones=Object.keys(m).sort((a,b)=>a==='\u0000'?1:b==='\u0000'?-1:a.localeCompare(b,'es')).map(t=>[t==='\u0000'?'Sin tag':'#'+t,m[t]]);
+  }else if(S.group==='linea'){
+    secciones=['3D','Cerámica','Aromas'].map(l=>[l,list.filter(p=>p.linea===l)]).filter(x=>x[1].length);
+  }else secciones=[['',list]];
+  $('#plist').innerHTML=!list.length
+    ?`<div class="card">${vacio(hayFiltros()?'Ningún producto coincide con los filtros.':'No hay productos todavía.')}</div>`
+    :`<div class="muted" style="margin-bottom:6px">${fam(list).length} producto${fam(list).length===1?'':'s'} · ${list.length} variante${list.length===1?'':'s'}</div>`+
+     secciones.map(([t,arr])=>`${t?`<h3 style="margin:18px 0 8px">${esc(t)} <span class="muted">· ${fam(arr).length}</span></h3>`:''}<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr))">${fam(arr).map(([n,vs])=>famCard(n,vs)).join('')}</div>`).join('');
+  const lc=$('#lclear');if(lc)lc.style.display=hayFiltros()?'':'none';
+}
+function vProductos(){
+  const arch=S.productos.filter(p=>!p.activo);
+  if(S.verArch)return vArchivados(arch);
+  const lineas=['todas','3D','Cerámica','Aromas'];
+  S._tagsUso=[...new Set(activos().flatMap(p=>p.tags))].sort((a,b)=>a.localeCompare(b,'es'));
+  const opt=(v,t,cur)=>`<option value="${v}" ${cur===v?'selected':''}>${t}</option>`;
+  $('#main').innerHTML=`<div class="top"><h1>Productos</h1><span style="display:flex;gap:8px;flex-wrap:wrap">${arch.length?`<button class="btn ghost" onclick="S.verArch=true;render()">Archivados (${arch.length})</button>`:''}<button class="btn" onclick="newProd()">+ Producto</button></span></div>
+  <div class="note">Cada variante (color, tamaño, aroma...) tiene su propia receta, costo, stock y precios. Los tags se comparten entre todas las variantes de un producto.</div>
+  <div class="tabs">${lineas.map(l=>`<button class="${S.tabProd===l?'on':''}" onclick="S.tabProd='${l}';render()">${l==='todas'?'Todas':l}</button>`).join('')}</div>
+  <div class="card" style="margin-bottom:14px"><div class="form" style="grid-template-columns:2fr 1fr 1fr">
+    <div><label>Buscar</label><input id="fq" value="${esc(S.q)}" placeholder="Nombre, variante o tag" oninput="S.q=this.value;drawProds()"></div>
+    <div><label>Stock</label><select onchange="S.stockF=this.value;render()">${opt('todos','Todos',S.stockF)}${opt('con','Con stock',S.stockF)}${opt('sin','Sin stock',S.stockF)}${opt('poco','Pocas unidades (menos de 3)',S.stockF)}</select></div>
+    <div><label>Agrupar por</label><select onchange="S.group=this.value;render()">${opt('ninguno','Sin agrupar',S.group)}${opt('tag','Tag',S.group)}${opt('linea','Línea',S.group)}</select></div></div>
+    ${S._tagsUso.length?`<div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center"><span class="muted">Tags:</span>${S._tagsUso.map((t,i)=>`<button class="tagc ${S.tagsSel.includes(t)?'on':''}" onclick="filtroTagIdx(${i})">#${esc(t)}</button>`).join('')}</div>`
+      :'<div class="muted" style="margin-top:10px">Todavía no hay tags: agregalos al crear o editar un producto.</div>'}
+    <button id="lclear" class="btn ghost sm" style="margin-top:10px;${hayFiltros()?'':'display:none'}" onclick="limpiarFiltros()">Limpiar filtros</button></div>
+  <div id="plist"></div>`;
+  drawProds();
 }
 /* Productos archivados: se pueden ver y restaurar (conservan su receta, precios y stock). */
 function vArchivados(arch){
@@ -351,16 +396,18 @@ function restaurar(id){const p=byId(S.productos,id);
   if(igual)return toast('Ya hay un producto activo igual a «'+nom(p)+'». Cambiale el nombre o la variante a uno de los dos antes de restaurar.');
   act(()=>ok(sb.from('productos').update({activo:true}).eq('id',id)))}
 let dp={id:null,fil:[],ins:[],v:{}};
-function newProd(){dp={id:null,fil:[],ins:[],v:{}};prodModal()}
+function newProd(){dp={id:null,tags:[],fil:[],ins:[],v:{}};prodModal()}
 function editProd(id){const p=byId(S.productos,id);
-  dp={id,fil:p.fil.map(x=>({...x})),ins:p.ins.map(x=>({...x})),v:{nombre:p.nombre,variante:p.variante,linea:p.linea,stock:p.stock,horas:p.horas,directo:p.directo}};prodModal()}
+  dp={id,tags:[...p.tags],fil:p.fil.map(x=>({...x})),ins:p.ins.map(x=>({...x})),v:{nombre:p.nombre,variante:p.variante,linea:p.linea,stock:p.stock,horas:p.horas,directo:p.directo}};prodModal()}
 /* Nueva variante: arranca con la receta y los precios de la variante de origen, para solo ajustar lo que cambia. */
 function newVariante(id){const p=byId(S.productos,id);
-  dp={id:null,copia:p.precios,fil:p.fil.map(x=>({...x})),ins:p.ins.map(x=>({...x})),v:{nombre:p.nombre,variante:'',linea:p.linea,stock:0,horas:p.horas,directo:p.directo}};prodModal()}
+  dp={id:null,copia:p.precios,tags:[...p.tags],fil:p.fil.map(x=>({...x})),ins:p.ins.map(x=>({...x})),v:{nombre:p.nombre,variante:'',linea:p.linea,stock:0,horas:p.horas,directo:p.directo}};prodModal()}
 function askArchive(){const p=byId(S.productos,dp.id);
   openModal(`<h2>¿Archivar «${esc(nom(p))}»?</h2><p class="muted">Deja de aparecer en productos, stock, precios y pedidos nuevos. Los pedidos que ya hiciste con este producto se conservan tal cual, con su precio y costo de ese momento.</p>
   <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" style="background:#b84a47" onclick="doArchive(${dp.id})">Sí, archivar</button></div>`)}
 function doArchive(id){closeModal();act(()=>ok(sb.from('productos').update({activo:false}).eq('id',id)))}
+function toggleTag(i){readProd();const t=dp.known[i];dp.tags=dp.tags.includes(t)?dp.tags.filter(x=>x!==t):[...dp.tags,t];prodModal()}
+function addTag(){readProd();const t=normTag($('#p8').value);if(t&&!dp.tags.includes(t))dp.tags=[...dp.tags,t];prodModal()}
 function readProd(){
   dp.v={nombre:$('#p1').value,variante:$('#p4').value,linea:$('#p2').value,stock:dp.id?dp.v.stock:$('#p3').value,horas:$('#p6').value,directo:$('#p7').value};
   dp.fil=[...document.querySelectorAll('.lf')].map(r=>({id:+r.querySelector('select').value,g:parseFloat(r.querySelector('input').value)||0}));
@@ -368,6 +415,7 @@ function readProd(){
 }
 function prodModal(){
   const v=dp.v||{};
+  dp.known=[...new Set([...S.productos.flatMap(p=>p.tags),...(dp.tags||[])])].sort((a,b)=>a.localeCompare(b,'es'));
   const optF=S.filamentos.map(f=>`<option value="${f.id}">${esc(f.material)} ${esc(f.color)}</option>`).join('');
   const optI=S.insumos.map(i=>`<option value="${i.id}">${esc(i.nombre)} (${esc(i.un)})</option>`).join('');
   const sel=(opts,id)=>opts.replace(`value="${id}"`,`value="${id}" selected`);
@@ -384,6 +432,9 @@ function prodModal(){
   <div style="margin-top:14px"><label>Insumos (cantidad por unidad)</label>
   ${dp.ins.map((l,ix)=>`<div class="line li"><select>${sel(optI,l.id)}</select><input type="number" min="0" step="any" value="${l.q}" placeholder="cant."><button class="rm" onclick="readProd();dp.ins.splice(${ix},1);prodModal()">×</button></div>`).join('')}
   ${S.insumos.length?`<button class="btn ghost sm" onclick="readProd();dp.ins.push({id:${S.insumos[0].id},q:1});prodModal()">+ insumo</button>`:'<span class="muted">Cargá materiales en Stock para usarlos acá.</span>'}</div>
+  <div style="margin-top:14px"><label>Tags · para agrupar y filtrar (valen para todas las variantes)</label>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${dp.known.map((t,i)=>`<button type="button" class="tagc ${dp.tags.includes(t)?'on':''}" onclick="toggleTag(${i})">#${esc(t)}</button>`).join('')||'<span class="muted">Todavía no hay tags: escribí el primero.</span>'}</div>
+  <div style="display:flex;gap:8px"><input id="p8" placeholder="Nuevo tag (ej: regalo, navidad)" onkeydown="if(event.key==='Enter'){event.preventDefault();addTag()}"><button type="button" class="btn ghost sm" onclick="addTag()">Agregar</button></div></div>
   <div class="acts" style="justify-content:space-between">${dp.id?'<button class="btn ghost" style="color:#b84a47;border-color:#b84a47" onclick="readProd();askArchive()">Archivar</button>':'<span></span>'}
     <span style="display:flex;gap:8px"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="addProd()">Guardar producto</button></span></div>`);
 }
@@ -397,12 +448,13 @@ function addProd(){
   const fil=dp.fil.filter(x=>x.g>0).map(x=>({id:x.id,g:x.g})),ins=dp.ins.filter(x=>x.q>0).map(x=>({id:x.id,q:x.q}));
   const args={p_id:dp.id,p_nombre:nombre,p_variante:variante,p_linea:v.linea,p_horas:parseFloat(v.horas)||0,p_directo:parseFloat(v.directo)||0,
     p_stock:Math.max(0,parseInt(v.stock)||0),p_fil:fil,p_ins:ins};
-  const viejo=dp.id?byId(S.productos,dp.id).nombre:null,copia=dp.copia;
+  const viejo=dp.id?byId(S.productos,dp.id).nombre:null,copia=dp.copia,tags=(dp.tags||[]).slice();
   closeModal();
   act(async()=>{
     const id=await ok(sb.rpc('guardar_producto',args));
     // Si se cambió el nombre, se renombran también las demás variantes de la familia.
     if(viejo&&viejo!==nombre)await ok(sb.from('productos').update({nombre}).eq('nombre',viejo));
+    await ok(sb.from('productos').update({tags}).eq('nombre',nombre));   // los tags valen para toda la familia
     if(copia)await ok(sb.from('precios').upsert(Object.entries(copia).map(([c,p])=>({producto_id:id,canal_id:c,precio:p})),{onConflict:'producto_id,canal_id'}));
   });
 }
