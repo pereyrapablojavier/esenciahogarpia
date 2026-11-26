@@ -135,7 +135,7 @@ const SUPABASE_KEY='sb_publishable_vzXjLm2Y152Gk2F1rjMD-Q_AJVKVd_m';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
 const S={config:{costoHora:350,margenObjetivo:40},canales:[],filamentos:[],insumos:[],productos:[],pedidos:[],
-  tabStock:'filamentos',tabProd:'todas',view:'panel',email:'',q:'',tagsSel:[],stockF:'todos',group:'ninguno'};
+  tabStock:'filamentos',tabProd:'todas',view:'panel',email:'',q:'',tagsSel:[],stockF:'todos',group:'ninguno',aq:'',aLinea:'todas',aStock:'todos',aTags:[]};
 const ESTADOS=['Pendiente','Preparando','Enviado','Entregado'];
 const $=s=>document.querySelector(s);
 const money=n=>'$ '+Math.round(n).toLocaleString('es-AR');
@@ -384,12 +384,44 @@ function vProductos(){
   drawProds();
 }
 /* Productos archivados: se pueden ver y restaurar (conservan su receta, precios y stock). */
+const hayFiltrosArch=()=>!!(S.aq.trim()||S.aLinea!=='todas'||S.aStock!=='todos'||S.aTags.length);
+function limpiarArch(){S.aq='';S.aLinea='todas';S.aStock='todos';S.aTags=[];render()}
+function archTagIdx(i){const t=S._aTagsUso[i];S.aTags=S.aTags.includes(t)?S.aTags.filter(x=>x!==t):[...S.aTags,t];render()}
+function filtrarArch(){
+  const q=S.aq.trim().toLowerCase();
+  return S.productos.filter(p=>{
+    if(p.activo)return false;
+    if(S.aLinea!=='todas'&&p.linea!==S.aLinea)return false;
+    if(S.aTags.some(t=>!p.tags.includes(t)))return false;
+    if(S.aStock==='con'&&p.stock<=0)return false;
+    if(S.aStock==='sin'&&p.stock>0)return false;
+    if(q&&!(nom(p)+' '+p.linea+' '+p.tags.join(' ')).toLowerCase().includes(q))return false;
+    return true}).sort((a,b)=>nom(a).localeCompare(nom(b),'es'));
+}
+function drawArch(){
+  const list=filtrarArch(),total=S.productos.filter(p=>!p.activo).length;
+  $('#alist').innerHTML=!total?`<div class="card">${vacio('No hay productos archivados.')}</div>`
+    :!list.length?`<div class="card">${vacio('Ningún archivado coincide con los filtros.')}</div>`
+    :`<div class="muted" style="margin-bottom:6px">${list.length} de ${total} archivado${total===1?'':'s'}</div><div class="card tw"><table><thead><tr><th>Producto</th><th>Línea</th><th>Tags</th><th class="r">Costo actual</th><th class="r">Stock</th><th></th></tr></thead><tbody>
+    ${list.map(p=>`<tr><td>${esc(nom(p))}</td><td><span class="tag">${p.linea}</span></td>
+      <td>${p.tags.map(t=>`<span class="tag" style="margin-right:4px">#${esc(t)}</span>`).join('')}</td>
+      <td class="r">${money(costo(p))}</td><td class="r">${p.stock} u.</td>
+      <td class="r"><button class="btn sm" onclick="restaurar(${p.id})">Restaurar</button></td></tr>`).join('')}</tbody></table></div>`;
+  const lc=$('#aclear');if(lc)lc.style.display=hayFiltrosArch()?'':'none';
+}
 function vArchivados(arch){
+  S._aTagsUso=[...new Set(arch.flatMap(p=>p.tags))].sort((a,b)=>a.localeCompare(b,'es'));
+  const opt=(v,t,cur)=>`<option value="${v}" ${cur===v?'selected':''}>${t}</option>`;
   $('#main').innerHTML=`<div class="top"><h1>Productos archivados</h1><button class="btn ghost" onclick="S.verArch=false;render()">← Volver a productos</button></div>
   <div class="note">Los archivados no aparecen en stock, precios ni pedidos nuevos, pero sus pedidos viejos se conservan. Restaurá uno para volver a usarlo: vuelve con su receta, sus precios y su stock.</div>
-  <div class="card tw">${!arch.length?vacio('No hay productos archivados.'):`<table><thead><tr><th>Producto</th><th>Línea</th><th class="r">Costo actual</th><th class="r">Stock</th><th></th></tr></thead><tbody>
-  ${arch.map(p=>`<tr><td>${esc(nom(p))}</td><td><span class="tag">${p.linea}</span></td><td class="r">${money(costo(p))}</td><td class="r">${p.stock} u.</td>
-    <td class="r"><button class="btn sm" onclick="restaurar(${p.id})">Restaurar</button></td></tr>`).join('')}</tbody></table>`}</div>`;
+  <div class="card" style="margin-bottom:14px"><div class="form" style="grid-template-columns:2fr 1fr 1fr">
+    <div><label>Buscar</label><input value="${esc(S.aq)}" placeholder="Nombre, variante o tag" oninput="S.aq=this.value;drawArch()"></div>
+    <div><label>Línea</label><select onchange="S.aLinea=this.value;render()">${opt('todas','Todas',S.aLinea)}${opt('3D','3D',S.aLinea)}${opt('Cerámica','Cerámica',S.aLinea)}${opt('Aromas','Aromas',S.aLinea)}</select></div>
+    <div><label>Stock</label><select onchange="S.aStock=this.value;render()">${opt('todos','Todos',S.aStock)}${opt('con','Con stock',S.aStock)}${opt('sin','Sin stock',S.aStock)}</select></div></div>
+    ${S._aTagsUso.length?`<div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center"><span class="muted">Tags:</span>${S._aTagsUso.map((t,i)=>`<button class="tagc ${S.aTags.includes(t)?'on':''}" onclick="archTagIdx(${i})">#${esc(t)}</button>`).join('')}</div>`:''}
+    <button id="aclear" class="btn ghost sm" style="margin-top:10px;${hayFiltrosArch()?'':'display:none'}" onclick="limpiarArch()">Limpiar filtros</button></div>
+  <div id="alist"></div>`;
+  drawArch();
 }
 function restaurar(id){const p=byId(S.productos,id);
   const igual=S.productos.some(x=>x.activo&&x.id!==id&&x.nombre.trim().toLowerCase()===p.nombre.trim().toLowerCase()&&(x.variante||'').trim().toLowerCase()===(p.variante||'').trim().toLowerCase());
