@@ -209,16 +209,17 @@ const vacio=t=>`<div class="muted" style="padding:14px 4px">${t}</div>`;
 
 /* ---------- Panel ---------- */
 function vPanel(){
-  const ventas=S.pedidos.reduce((a,o)=>a+totalPedido(o),0);
-  const gan=S.pedidos.reduce((a,o)=>a+gananciaPedido(o),0);
-  const pend=S.pedidos.filter(o=>o.estado!=='Entregado').length;
+  const vivos=S.pedidos.filter(o=>o.estado!=='Cancelado');
+  const ventas=vivos.reduce((a,o)=>a+totalPedido(o),0);
+  const gan=vivos.reduce((a,o)=>a+gananciaPedido(o),0);
+  const pend=vivos.filter(o=>o.estado!=='Entregado').length;
   const al=alertas();
   const rank=activos().map(p=>{const c=canal('tn')||S.canales[0];return {p,m:c?neto(c,p.precios[c.id]||0)-costo(p):0}}).sort((a,b)=>b.m-a.m).slice(0,6);
   $('#main').innerHTML=`
   <div class="top"><div><h1>Hola 👋</h1><div class="muted">Resumen de Esencia Hogar PIA</div></div></div>
   ${!S.filamentos.length&&!S.productos.length?'<div class="note">Todavía no hay datos. Empezá por <b>Stock</b>: cargá tus filamentos e insumos. Después creá tus <b>Productos</b> con su receta y los precios.</div>':''}
   <div class="grid kpis">
-    <div class="card kpi"><div class="l">Ventas totales</div><div class="v">${money(ventas)}</div><div class="s">${S.pedidos.length} pedidos</div></div>
+    <div class="card kpi"><div class="l">Ventas totales</div><div class="v">${money(ventas)}</div><div class="s">${vivos.length} pedidos${S.pedidos.length>vivos.length?` (${S.pedidos.length-vivos.length} cancelados no cuentan)`:''}</div></div>
     <div class="card kpi"><div class="l">Ganancia estimada</div><div class="v">${money(gan)}</div><div class="s">después de comisiones y costos</div></div>
     <div class="card kpi"><div class="l">Pedidos en curso</div><div class="v">${pend}</div><div class="s">sin entregar</div></div>
     <div class="card kpi"><div class="l">Alertas de stock</div><div class="v" style="color:${al.length?'#b84a47':'#2d8a66'}">${al.length}</div><div class="s">${al.length?'reponer pronto':'todo en orden'}</div></div>
@@ -379,14 +380,28 @@ function addProd(){
 /* ---------- Pedidos ---------- */
 function vPedidos(){
   $('#main').innerHTML=`<div class="top"><h1>Pedidos</h1><button class="btn" onclick="newPed()">+ Pedido</button></div>
-  <div class="card tw">${!S.pedidos.length?vacio('Todavía no hay pedidos.'):`<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Canal</th><th>Productos</th><th class="r">Total</th><th class="r">Ganancia</th><th>Estado</th></tr></thead><tbody>
-  ${[...S.pedidos].reverse().map(o=>{const g=gananciaPedido(o);return `<tr><td>${o.fecha.slice(5).split('-').reverse().join('/')}</td><td>${esc(o.cliente)}</td><td>${esc(canal(o.canal)?.nombre||'—')}</td>
+  <div class="card tw">${!S.pedidos.length?vacio('Todavía no hay pedidos.'):`<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Canal</th><th>Productos</th><th class="r">Total</th><th class="r">Ganancia</th><th>Estado</th><th></th></tr></thead><tbody>
+  ${[...S.pedidos].reverse().map(o=>{const g=gananciaPedido(o);const x=o.estado==='Cancelado';return `<tr style="${x?'opacity:.55':''}"><td>${o.fecha.slice(5).split('-').reverse().join('/')}</td><td>${esc(o.cliente)}</td><td>${esc(canal(o.canal)?.nombre||'—')}</td>
     <td>${o.items.map(i=>`${i.q}× ${esc(byId(S.productos,i.p)?.nombre||'?')}`).join('<br>')}${o.faltan?`<br><span class="tag warn">a producir: ${o.faltan}</span>`:''}</td>
-    <td class="r">${money(totalPedido(o))}</td><td class="r ${g>=0?'pos':'neg'}">${money(g)}</td>
-    <td><button class="tag ${o.estado==='Entregado'?'ok':o.estado==='Enviado'?'info':o.estado==='Preparando'?'warn':''}" style="border:0;cursor:pointer" onclick="nextEstado(${o.id})" title="Click para avanzar">${o.estado} ›</button></td></tr>`}).join('')}
+    <td class="r" style="${x?'text-decoration:line-through':''}">${money(totalPedido(o))}</td><td class="r ${x?'':g>=0?'pos':'neg'}">${x?'—':money(g)}</td>
+    <td>${x?'<span class="tag bad">Cancelado</span>':`<button class="tag ${o.estado==='Entregado'?'ok':o.estado==='Enviado'?'info':o.estado==='Preparando'?'warn':''}" style="border:0;cursor:pointer" onclick="nextEstado(${o.id})" title="Click para avanzar">${o.estado} ›</button>`}</td>
+    <td class="r" style="white-space:nowrap"><button class="btn ghost sm" onclick="editPed(${o.id})">Editar</button>${x?'':` <button class="btn ghost sm" onclick="askCancel(${o.id})">Cancelar</button>`}</td></tr>`}).join('')}
   </tbody></table>`}</div>`;
 }
-function nextEstado(id){const o=byId(S.pedidos,id);const e=ESTADOS[(ESTADOS.indexOf(o.estado)+1)%ESTADOS.length];act(()=>ok(sb.from('pedidos').update({estado:e}).eq('id',id)))}
+function nextEstado(id){const o=byId(S.pedidos,id);if(o.estado==='Cancelado')return;const e=ESTADOS[(ESTADOS.indexOf(o.estado)+1)%ESTADOS.length];act(()=>ok(sb.from('pedidos').update({estado:e}).eq('id',id)))}
+/* Editar: solo el nombre/referencia del cliente. Cambiar productos o canal altera stock y precios:
+   para eso se cancela el pedido y se carga de nuevo. */
+function editPed(id){const o=byId(S.pedidos,id);
+  openModal(`<h2>Editar pedido</h2><div class="form"><div class="full"><label>Cliente / referencia</label><input id="e1" value="${esc(o.cliente)}"></div></div>
+  <p class="muted" style="margin-top:10px">Para cambiar productos, cantidades o canal: cancelá este pedido y cargalo de nuevo.</p>
+  <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="savePedCliente(${id})">Guardar</button></div>`)}
+function savePedCliente(id){const c=$('#e1').value.trim()||'Sin nombre';closeModal();act(()=>ok(sb.from('pedidos').update({cliente:c}).eq('id',id)))}
+function askCancel(id){const o=byId(S.pedidos,id);const vuelve=o.estado==='Pendiente'||o.estado==='Preparando';
+  openModal(`<h2>¿Cancelar el pedido de «${esc(o.cliente)}»?</h2>
+  <p class="muted">${vuelve?'Las unidades que se habían descontado del stock vuelven a stock.':'Como ya figura como '+esc(o.estado.toLowerCase())+', el stock <b>no</b> se devuelve: si el producto volvió, sumalo a mano en Stock.'}
+  El pedido queda en la lista como cancelado y deja de contar en ventas y ganancia. No se puede deshacer.</p>
+  <div class="acts"><button class="btn ghost" onclick="closeModal()">Volver</button><button class="btn" style="background:#b84a47" onclick="doCancel(${id})">Sí, cancelar pedido</button></div>`)}
+function doCancel(id){closeModal();act(()=>ok(sb.rpc('cancelar_pedido',{p_id:id})))}
 let draft=[];let pv={c:'',ca:''};
 function newPed(){
   if(!activos().length)return toast('Primero creá al menos un producto.');
