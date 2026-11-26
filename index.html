@@ -157,13 +157,14 @@ async function act(fn){
 }
 async function load(){
   const q=t=>ok(sb.from(t).select('*'));
-  const [cfg,can,fil,ins,pro,pf,pi,pr,ped,pit]=await Promise.all(
-    ['config','canales','filamentos','insumos','productos','producto_filamentos','producto_insumos','precios','pedidos','pedido_items'].map(q));
+  const [cfg,can,fil,ins,pro,pf,pi,pr,ped,pit,cco]=await Promise.all(
+    ['config','canales','filamentos','insumos','productos','producto_filamentos','producto_insumos','precios','pedidos','pedido_items','combo_componentes'].map(q));
   if(cfg[0])S.config={costoHora:+cfg[0].costo_hora,margenObjetivo:+cfg[0].margen_objetivo};
   S.canales=can.map(c=>({id:c.id,nombre:c.nombre,com:+c.comision,fijo:+c.fijo}));
   S.filamentos=fil.map(f=>({id:f.id,marca:f.marca,material:f.material,color:f.color,hex:f.hex,costoKg:+f.costo_kg,rollo:+f.rollo,resta:+f.resta})).sort((a,b)=>a.id-b.id);
   S.insumos=ins.map(i=>({id:i.id,nombre:i.nombre,cat:i.cat,un:i.un,cant:+i.cant,min:+i.min,costo:+i.costo})).sort((a,b)=>a.id-b.id);
-  S.productos=pro.map(p=>({id:p.id,nombre:p.nombre,linea:p.linea,horas:+p.horas,directo:+p.directo,stock:p.stock,activo:p.activo!==false,variante:p.variante||'',tags:p.tags||[],
+  S.productos=pro.map(p=>({id:p.id,nombre:p.nombre,linea:p.linea,horas:+p.horas,directo:+p.directo,stock:p.stock,activo:p.activo!==false,variante:p.variante||'',tags:p.tags||[],esCombo:!!p.es_combo,
+    comps:cco.filter(x=>x.combo_id===p.id).map(x=>({p:x.producto_id,q:x.q})),
     fil:pf.filter(x=>x.producto_id===p.id).map(x=>({id:x.filamento_id,g:+x.g})),
     ins:pi.filter(x=>x.producto_id===p.id).map(x=>({id:x.insumo_id,q:+x.q})),
     precios:Object.fromEntries(pr.filter(x=>x.producto_id===p.id).map(x=>[x.canal_id,+x.precio]))})).sort((a,b)=>a.id-b.id);
@@ -176,7 +177,14 @@ const activos=()=>S.productos.filter(p=>p.activo);
 const nom=p=>p?p.nombre+(p.variante?' · '+p.variante:''):'?';
 
 /* ---------- Cálculos ---------- */
+/* Un combo no tiene stock propio: alcanza para tantas unidades como permita su componente más escaso. */
+function stockEff(p,extra){
+  if(!p.esCombo)return p.stock;
+  if(!p.comps.length)return 0;
+  return Math.min(...p.comps.map(c=>{const x=byId(S.productos,c.p);return x?Math.floor(((x.stock||0)+((extra&&extra[c.p])||0))/c.q):0}))}
+const sepPrecio=(p,cid)=>p.comps.reduce((a,c)=>a+c.q*((byId(S.productos,c.p)?.precios[cid])||0),0);
 function costo(p){
+  if(p.esCombo)return p.comps.reduce((a,c)=>{const x=byId(S.productos,c.p);return a+(x?c.q*costo(x):0)},0)+p.directo;
   const f=p.fil.reduce((a,x)=>a+x.g*(byId(S.filamentos,x.id)?.costoKg||0)/1000,0);
   const i=p.ins.reduce((a,x)=>a+x.q*(byId(S.insumos,x.id)?.costo||0),0);
   return f+i+p.horas*S.config.costoHora+p.directo;
@@ -255,9 +263,11 @@ function vStock(){
       <td><span class="qty"><button onclick="adj('insumos',${i.id},-1)">−</button><input class="qn" type="number" min="0" step="any" value="${i.cant}" onchange="setCant('insumos',${i.id},'cant',this.value)"><span class="muted">${esc(i.un)}</span><button onclick="adj('insumos',${i.id},1)">+</button></span> ${i.cant<i.min?'<span class="tag bad">bajo</span>':''}</td>
       <td class="r">${money(i.costo)}/${esc(i.un)}</td><td class="r" style="white-space:nowrap"><span class="muted">mín. ${i.min}</span> <button class="btn ghost sm" onclick="editIns(${i.id})">Editar</button> <button class="btn ghost sm" onclick="askDel('insumos',${i.id})" title="Eliminar">🗑</button></td></tr>`).join('')}</tbody></table></div>`;
   }else{
+    const simples=activos().filter(p=>!p.esCombo),combos=activos().filter(p=>p.esCombo);
     body=!activos().length?vacio('Primero creá tus productos en la pestaña Productos.'):`<div class="tw"><table><thead><tr><th>Producto</th><th>Línea</th><th>Unidades listas</th></tr></thead><tbody>
-    ${activos().map(p=>`<tr><td>${esc(nom(p))}</td><td><span class="tag">${p.linea}</span></td>
-      <td><span class="qty"><button onclick="adj('productos',${p.id},-1,'stock')">−</button><input class="qn" type="number" min="0" step="1" value="${p.stock}" onchange="setCant('productos',${p.id},'stock',this.value)"><button onclick="adj('productos',${p.id},1,'stock')">+</button></span> ${p.stock<3?'<span class="tag warn">pocas</span>':''}</td></tr>`).join('')}</tbody></table></div>`;
+    ${simples.map(p=>`<tr><td>${esc(nom(p))}</td><td><span class="tag">${p.linea}</span></td>
+      <td><span class="qty"><button onclick="adj('productos',${p.id},-1,'stock')">−</button><input class="qn" type="number" min="0" step="1" value="${p.stock}" onchange="setCant('productos',${p.id},'stock',this.value)"><button onclick="adj('productos',${p.id},1,'stock')">+</button></span> ${p.stock<3?'<span class="tag warn">pocas</span>':''}</td></tr>`).join('')}</tbody></table></div>
+    ${combos.length?`<h3 style="margin:18px 0 6px">Combos <span class="muted">· se calculan solos con el stock de sus productos</span></h3><div class="tw"><table><tbody>${combos.map(p=>`<tr><td>${esc(p.nombre)}</td><td class="muted">${p.comps.map(c=>c.q+'× '+esc(nom(byId(S.productos,c.p)))).join(' + ')}</td><td class="r"><b>${stockEff(p)}</b> u. posibles</td></tr>`).join('')}</tbody></table></div>`:''}`;
   }
   $('#main').innerHTML=`<div class="top"><h1>Stock</h1>
     ${t==='insumos'?'<button class="btn" onclick="newIns()">+ Material</button>':t==='filamentos'?'<button class="btn" onclick="newFil()">+ Filamento</button>':''}</div>
@@ -338,9 +348,9 @@ function filtrar(){
   return activos().filter(p=>{
     if(S.tabProd!=='todas'&&p.linea!==S.tabProd)return false;
     if(S.tagsSel.some(t=>!p.tags.includes(t)))return false;
-    if(S.stockF==='con'&&p.stock<=0)return false;
-    if(S.stockF==='sin'&&p.stock>0)return false;
-    if(S.stockF==='poco'&&p.stock>=3)return false;
+    if(S.stockF==='con'&&stockEff(p)<=0)return false;
+    if(S.stockF==='sin'&&stockEff(p)>0)return false;
+    if(S.stockF==='poco'&&stockEff(p)>=3)return false;
     if(q&&!(nom(p)+' '+p.linea+' '+p.tags.join(' ')).toLowerCase().includes(q))return false;
     return true});
 }
@@ -349,11 +359,14 @@ function famCard(nombre,vs){
   return `<div class="card"><div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:6px"><h3>${esc(nombre)}</h3><span class="tag">${vs[0].linea}</span></div>
     ${tags.length?`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px">${tags.map(t=>`<button class="tagc" onclick="filtroTag('${esc(t)}')">#${esc(t)}</button>`).join('')}</div>`:''}
     ${vs.map(p=>{
+      if(p.esCombo)return `<div class="alert" style="align-items:center;gap:10px"><div style="flex:1;min-width:0"><b>Combo</b><div class="muted">${p.comps.map(c=>c.q+'× '+esc(nom(byId(S.productos,c.p)))).join(' + ')}${p.directo?' · extra '+money(p.directo):''}</div></div>
+      <div class="r" style="white-space:nowrap"><div class="muted">${stockEff(p)} u. posibles</div><b>${money(costo(p))}</b></div>
+      <button class="btn ghost sm" onclick="editCombo(${p.id})">Editar</button></div>`;
       const det=[...p.fil.map(x=>`${x.g} g ${esc(byId(S.filamentos,x.id)?.color||'?')}`),p.horas?`${p.horas} h`:null,...p.ins.map(x=>{const i=byId(S.insumos,x.id);return `${x.q} ${esc(i?.un||'')} ${esc((i?.nombre||'?').toLowerCase())}`}),p.directo?`directo ${money(p.directo)}`:null].filter(Boolean);
       return `<div class="alert" style="align-items:center;gap:10px"><div style="flex:1;min-width:0"><b>${esc(p.variante||'Única')}</b><div class="muted">${det.join(' · ')||'sin receta'}</div></div>
       <div class="r" style="white-space:nowrap"><div class="muted">${p.stock} u. listas</div><b>${money(costo(p))}</b></div>
       <button class="btn ghost sm" onclick="editProd(${p.id})">Editar</button></div>`}).join('')}
-    <div style="margin-top:10px"><button class="btn ghost sm" onclick="newVariante(${vs[0].id})">+ variante</button></div></div>`;
+    ${vs[0].esCombo?'':`<div style="margin-top:10px"><button class="btn ghost sm" onclick="newVariante(${vs[0].id})">+ variante</button></div>`}</div>`;
 }
 function drawProds(){
   const list=filtrar();
@@ -363,7 +376,7 @@ function drawProds(){
     const m={};list.forEach(p=>(p.tags.length?p.tags:['\u0000']).forEach(t=>(m[t]=m[t]||[]).push(p)));
     secciones=Object.keys(m).sort((a,b)=>a==='\u0000'?1:b==='\u0000'?-1:a.localeCompare(b,'es')).map(t=>[t==='\u0000'?'Sin tag':'#'+t,m[t]]);
   }else if(S.group==='linea'){
-    secciones=['3D','Cerámica','Aromas'].map(l=>[l,list.filter(p=>p.linea===l)]).filter(x=>x[1].length);
+    secciones=['3D','Cerámica','Aromas','Combo'].map(l=>[l,list.filter(p=>p.linea===l)]).filter(x=>x[1].length);
   }else secciones=[['',list]];
   $('#plist').innerHTML=!list.length
     ?`<div class="card">${vacio(hayFiltros()?'Ningún producto coincide con los filtros.':'No hay productos todavía.')}</div>`
@@ -374,10 +387,10 @@ function drawProds(){
 function vProductos(){
   const arch=S.productos.filter(p=>!p.activo);
   if(S.verArch)return vArchivados(arch);
-  const lineas=['todas','3D','Cerámica','Aromas'];
+  const lineas=['todas','3D','Cerámica','Aromas','Combo'];
   S._tagsUso=[...new Set(activos().flatMap(p=>p.tags))].sort((a,b)=>a.localeCompare(b,'es'));
   const opt=(v,t,cur)=>`<option value="${v}" ${cur===v?'selected':''}>${t}</option>`;
-  $('#main').innerHTML=`<div class="top"><h1>Productos</h1><span style="display:flex;gap:8px;flex-wrap:wrap">${arch.length?`<button class="btn ghost" onclick="S.verArch=true;render()">Archivados (${arch.length})</button>`:''}<button class="btn" onclick="newProd()">+ Producto</button></span></div>
+  $('#main').innerHTML=`<div class="top"><h1>Productos</h1><span style="display:flex;gap:8px;flex-wrap:wrap">${arch.length?`<button class="btn ghost" onclick="S.verArch=true;render()">Archivados (${arch.length})</button>`:''}<button class="btn ghost" onclick="newCombo()">+ Combo</button><button class="btn" onclick="newProd()">+ Producto</button></span></div>
   <div class="note">Cada variante (color, tamaño, aroma...) tiene su propia receta, costo, stock y precios. Los tags se comparten entre todas las variantes de un producto.</div>
   <div class="tabs">${lineas.map(l=>`<button class="${S.tabProd===l?'on':''}" onclick="S.tabProd='${l}';render()">${l==='todas'?'Todas':l}</button>`).join('')}</div>
   <div class="card" style="margin-bottom:14px"><div class="form" style="grid-template-columns:2fr 1fr 1fr">
@@ -400,8 +413,8 @@ function filtrarArch(){
     if(p.activo)return false;
     if(S.aLinea!=='todas'&&p.linea!==S.aLinea)return false;
     if(S.aTags.some(t=>!p.tags.includes(t)))return false;
-    if(S.aStock==='con'&&p.stock<=0)return false;
-    if(S.aStock==='sin'&&p.stock>0)return false;
+    if(S.aStock==='con'&&stockEff(p)<=0)return false;
+    if(S.aStock==='sin'&&stockEff(p)>0)return false;
     if(q&&!(nom(p)+' '+p.linea+' '+p.tags.join(' ')).toLowerCase().includes(q))return false;
     return true}).sort((a,b)=>nom(a).localeCompare(nom(b),'es'));
 }
@@ -412,7 +425,7 @@ function drawArch(){
     :`<div class="muted" style="margin-bottom:6px">${list.length} de ${total} archivado${total===1?'':'s'}</div><div class="card tw"><table><thead><tr><th>Producto</th><th>Línea</th><th>Tags</th><th class="r">Costo actual</th><th class="r">Stock</th><th></th></tr></thead><tbody>
     ${list.map(p=>`<tr><td>${esc(nom(p))}</td><td><span class="tag">${p.linea}</span></td>
       <td>${p.tags.map(t=>`<span class="tag" style="margin-right:4px">#${esc(t)}</span>`).join('')}</td>
-      <td class="r">${money(costo(p))}</td><td class="r">${p.stock} u.</td>
+      <td class="r">${money(costo(p))}</td><td class="r">${stockEff(p)} u.</td>
       <td class="r"><button class="btn sm" onclick="restaurar(${p.id})">Restaurar</button></td></tr>`).join('')}</tbody></table></div>`;
   const lc=$('#aclear');if(lc)lc.style.display=hayFiltrosArch()?'':'none';
 }
@@ -423,7 +436,7 @@ function vArchivados(arch){
   <div class="note">Los archivados no aparecen en stock, precios ni pedidos nuevos, pero sus pedidos viejos se conservan. Restaurá uno para volver a usarlo: vuelve con su receta, sus precios y su stock.</div>
   <div class="card" style="margin-bottom:14px"><div class="form" style="grid-template-columns:2fr 1fr 1fr">
     <div><label>Buscar</label><input value="${esc(S.aq)}" placeholder="Nombre, variante o tag" oninput="S.aq=this.value;drawArch()"></div>
-    <div><label>Línea</label><select onchange="S.aLinea=this.value;render()">${opt('todas','Todas',S.aLinea)}${opt('3D','3D',S.aLinea)}${opt('Cerámica','Cerámica',S.aLinea)}${opt('Aromas','Aromas',S.aLinea)}</select></div>
+    <div><label>Línea</label><select onchange="S.aLinea=this.value;render()">${opt('todas','Todas',S.aLinea)}${opt('3D','3D',S.aLinea)}${opt('Cerámica','Cerámica',S.aLinea)}${opt('Aromas','Aromas',S.aLinea)}${opt('Combo','Combo',S.aLinea)}</select></div>
     <div><label>Stock</label><select onchange="S.aStock=this.value;render()">${opt('todos','Todos',S.aStock)}${opt('con','Con stock',S.aStock)}${opt('sin','Sin stock',S.aStock)}</select></div></div>
     ${S._aTagsUso.length?`<div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center"><span class="muted">Tags:</span>${S._aTagsUso.map((t,i)=>`<button class="tagc ${S.aTags.includes(t)?'on':''}" onclick="archTagIdx(${i})">#${esc(t)}</button>`).join('')}</div>`:''}
     <button id="aclear" class="btn ghost sm" style="margin-top:10px;${hayFiltrosArch()?'':'display:none'}" onclick="limpiarArch()">Limpiar filtros</button></div>
@@ -442,7 +455,8 @@ function editProd(id){const p=byId(S.productos,id);
 function newVariante(id){const p=byId(S.productos,id);
   dp={id:null,copia:p.precios,tags:[...p.tags],fil:p.fil.map(x=>({...x})),ins:p.ins.map(x=>({...x})),v:{nombre:p.nombre,variante:'',linea:p.linea,stock:STOCK_INICIAL,horas:p.horas,directo:p.directo}};prodModal()}
 function askArchive(){const p=byId(S.productos,dp.id);
-  openModal(`<h2>¿Archivar «${esc(nom(p))}»?</h2><p class="muted">Deja de aparecer en productos, stock, precios y pedidos nuevos. Los pedidos que ya hiciste con este producto se conservan tal cual, con su precio y costo de ese momento.</p>
+  const enCombos=S.productos.filter(x=>x.activo&&x.esCombo&&x.comps.some(c=>c.p===p.id)).map(x=>x.nombre);
+  openModal(`<h2>¿Archivar «${esc(nom(p))}»?</h2>${enCombos.length?`<div class="note" style="background:#fbecd8">Está dentro de estos combos: ${enCombos.map(esc).join(', ')}. Los combos siguen mostrándolo y descontando su stock; si ya no lo vendés, editalos.</div>`:''}<p class="muted">Deja de aparecer en productos, stock, precios y pedidos nuevos. Los pedidos que ya hiciste con este producto se conservan tal cual, con su precio y costo de ese momento.</p>
   <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" style="background:#b84a47" onclick="doArchive(${dp.id})">Sí, archivar</button></div>`)}
 function doArchive(id){closeModal();act(()=>ok(sb.from('productos').update({activo:false}).eq('id',id)))}
 function toggleTag(i){readProd();const t=dp.known[i];dp.tags=dp.tags.includes(t)?dp.tags.filter(x=>x!==t):[...dp.tags,t];prodModal()}
@@ -504,6 +518,57 @@ function addProd(){
   });
 }
 
+
+/* ---------- Combos ---------- */
+let dc={id:null,nombre:'',directo:0,comps:[],tags:[]};
+const simplesAct=()=>activos().filter(p=>!p.esCombo);
+function newCombo(){
+  if(!simplesAct().length)return toast('Primero creá productos para poder armar un combo.');
+  dc={id:null,nombre:'',directo:0,comps:[{p:simplesAct()[0].id,q:1},{p:simplesAct()[Math.min(1,simplesAct().length-1)].id,q:1}],tags:[]};comboModal()}
+function editCombo(id){const p=byId(S.productos,id);dc={id,nombre:p.nombre,directo:p.directo,comps:p.comps.map(c=>({...c})),tags:[...p.tags]};comboModal()}
+function comboRead(){
+  dc.nombre=$('#c1').value;dc.directo=parseFloat($('#c2').value)||0;
+  dc.comps=[...document.querySelectorAll('.lc')].map(r=>({p:+r.querySelector('select').value,q:Math.max(1,parseInt(r.querySelector('input').value)||1)}));
+}
+function comboToggleTag(i){comboRead();const t=dc.known[i];dc.tags=dc.tags.includes(t)?dc.tags.filter(x=>x!==t):[...dc.tags,t];comboModal()}
+function comboAddTag(){comboRead();const t=normTag($('#c8').value);if(t&&!dc.tags.includes(t))dc.tags=[...dc.tags,t];comboModal()}
+function comboModal(){
+  dc.known=[...new Set([...S.productos.flatMap(p=>p.tags),...dc.tags])].sort((a,b)=>a.localeCompare(b,'es'));
+  const opts=(sel)=>{const ids=new Set(simplesAct().map(p=>p.id));const extra=dc.comps.map(c=>byId(S.productos,c.p)).filter(p=>p&&!ids.has(p.id));
+    return [...simplesAct(),...extra].map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(nom(p))}${p.activo?'':' (archivado)'}</option>`).join('')};
+  const cost=costo({esCombo:true,comps:dc.comps,directo:dc.directo});
+  const stock=stockEff({esCombo:true,comps:dc.comps});
+  openModal(`<h2>${dc.id?'Editar combo':'Nuevo combo'}</h2><div class="form">
+    <div class="full"><label>Nombre del combo</label><input id="c1" value="${esc(dc.nombre)}" placeholder="Ej: Pack Navidad"></div>
+    <div class="full"><label>Costo extra ($) · caja, packaging, etc. (opcional)</label><input id="c2" type="number" min="0" value="${dc.directo||0}" onchange="comboRead();comboModal()"></div></div>
+  <div style="margin-top:14px"><label>Productos del combo (cantidad por combo)</label>
+  ${dc.comps.map((l,ix)=>`<div class="line lc"><select onchange="comboRead();comboModal()">${opts(l.p)}</select><input type="number" min="1" step="1" value="${l.q}" onchange="comboRead();comboModal()"><button class="rm" onclick="comboRead();dc.comps.splice(${ix},1);comboModal()">×</button></div>`).join('')}
+  <button class="btn ghost sm" onclick="comboRead();dc.comps.push({p:${simplesAct()[0].id},q:1});comboModal()">+ otro producto</button></div>
+  <div class="note" style="margin-top:12px">Costo del combo: <b>${money(cost)}</b> · Con el stock actual salen <b>${stock}</b> combos.<br>
+  Si lo vendieras por separado: ${S.canales.map(c=>`${esc(c.nombre)} <b>${money(sepPrecio({comps:dc.comps},c.id))}</b>`).join(' · ')}. El precio del combo lo ponés en la pestaña Precios.</div>
+  <div style="margin-top:14px"><label>Tags</label>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${dc.known.map((t,i)=>`<button type="button" class="tagc ${dc.tags.includes(t)?'on':''}" onclick="comboToggleTag(${i})">#${esc(t)}</button>`).join('')||'<span class="muted">Todavía no hay tags.</span>'}</div>
+  <div style="display:flex;gap:8px"><input id="c8" placeholder="Nuevo tag" onkeydown="if(event.key==='Enter'){event.preventDefault();comboAddTag()}"><button type="button" class="btn ghost sm" onclick="comboAddTag()">Agregar</button></div></div>
+  <div class="acts" style="justify-content:space-between">${dc.id?'<button class="btn ghost" style="color:#b84a47;border-color:#b84a47" onclick="comboRead();askArchiveCombo()">Archivar</button>':'<span></span>'}
+    <span style="display:flex;gap:8px"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="saveCombo()">Guardar combo</button></span></div>`);
+}
+function askArchiveCombo(){
+  openModal(`<h2>¿Archivar el combo «${esc(dc.nombre)}»?</h2><p class="muted">Deja de aparecer en pedidos nuevos y precios. Los pedidos ya hechos se conservan. Se puede restaurar desde Archivados.</p>
+  <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" style="background:#b84a47" onclick="doArchive(${dc.id})">Sí, archivar</button></div>`)}
+function saveCombo(){
+  comboRead();const nombre=dc.nombre.trim();
+  if(!nombre)return toast('Poné el nombre del combo.');
+  if(!dc.comps.length)return toast('El combo necesita al menos un producto.');
+  if(S.productos.some(x=>x.activo&&x.id!==dc.id&&x.nombre.trim().toLowerCase()===nombre.toLowerCase()))return toast('Ya hay un producto o combo con ese nombre.');
+  const comps=Object.values(dc.comps.reduce((m,c)=>{m[c.p]=m[c.p]?{p:c.p,q:m[c.p].q+c.q}:{...c};return m},{}));
+  const tags=dc.tags.slice(),id0=dc.id;
+  closeModal();
+  act(async()=>{
+    const id=await ok(sb.rpc('guardar_combo',{p_id:id0,p_nombre:nombre,p_directo:dc.directo||0,p_comps:comps}));
+    await ok(sb.from('productos').update({tags}).eq('id',id));
+  });
+}
+
 /* ---------- Pedidos ---------- */
 function vPedidos(){
   $('#main').innerHTML=`<div class="top"><h1>Pedidos</h1><button class="btn" onclick="newPed()">+ Pedido</button></div>
@@ -540,7 +605,9 @@ function newPed(){
 function pedRead(){pv={...pv,c:$('#pc').value,ca:$('#pca').value}}
 const origPed=()=>pv.id?byId(S.pedidos,pv.id):null;
 /* Al editar, las unidades que este pedido ya tenía descontadas cuentan como disponibles. */
-const disp=p=>p.stock+((origPed()?.items.find(i=>i.p===p.id)?.de)||0);
+const deOrig=id=>(origPed()?.items.find(i=>i.p===id)?.de)||0;
+const extraComps=p=>{const e={};const d=deOrig(p.id);if(d)p.comps.forEach(c=>e[c.p]=d*c.q);return e};
+const disp=p=>p.esCombo?stockEff(p,extraComps(p)):p.stock+deOrig(p.id);
 const opcionesProd=()=>{const o=origPed();const extra=o?o.items.map(i=>byId(S.productos,i.p)).filter(p=>p&&!p.activo):[];return [...activos(),...extra]};
 const precioDraft=l=>{const o=origPed();const it=o&&pv.ca===o.canal?o.items.find(i=>i.p===l.p):null;return it&&it.precio!=null?it.precio:((byId(S.productos,l.p)?.precios[pv.ca])||0)};
 function pedModal(){
@@ -548,6 +615,8 @@ function pedModal(){
   const aviso=draft.map((l,ix)=>{
     if(!faltas[ix])return '';
     const p=byId(S.productos,l.p);
+    if(p.esCombo){const e=extraComps(p);const sh=p.comps.map(c=>{const x=byId(S.productos,c.p);const falta=c.q*l.q-((x.stock||0)+(e[c.p]||0));return falta>0?`${esc(nom(x))}: faltan ${falta}`:null}).filter(Boolean);
+      return `<div class="note" style="background:#fbecd8">Faltan ${faltas[ix]} u. del combo «${esc(nom(p))}» para producir.${sh.length?' Te faltan → '+sh.join(', '):''}</div>`}
     const need={};p.fil.forEach(x=>need[x.id]=(need[x.id]||0)+x.g*faltas[ix]);
     const lack=Object.entries(need).filter(([id,g])=>byId(S.filamentos,id).resta<g).map(([id,g])=>`${esc(byId(S.filamentos,id).color)}: faltan ${g-byId(S.filamentos,id).resta} g`);
     return `<div class="note" style="background:#fbecd8">Faltan ${faltas[ix]} u. de «${esc(nom(p))}» para producir.${p.fil.length?(lack.length?' No alcanza el filamento → '+lack.join(', '):' El filamento alcanza.'):''}</div>`}).join('');
@@ -556,7 +625,7 @@ function pedModal(){
     <div><label>Cliente / referencia</label><input id="pc" value="${esc(pv.c)}"></div>
     <div><label>Canal de venta</label><select id="pca" onchange="pedRead();pedModal()">${S.canales.map(c=>`<option value="${c.id}" ${c.id===pv.ca?'selected':''}>${esc(c.nombre)}</option>`).join('')}</select></div></div>
     <div style="margin-top:14px"><label>Productos</label>
-    ${draft.map((l,ix)=>`<div class="line"><select onchange="pedRead();draft[${ix}].p=+this.value;pedModal()">${opcionesProd().map(p=>`<option value="${p.id}" ${p.id===l.p?'selected':''}>${esc(nom(p))}${p.activo?'':' (archivado)'} (${disp(p)} listos)</option>`).join('')}</select>
+    ${draft.map((l,ix)=>`<div class="line"><select onchange="pedRead();draft[${ix}].p=+this.value;pedModal()">${opcionesProd().map(p=>`<option value="${p.id}" ${p.id===l.p?'selected':''}>${esc(nom(p))}${p.activo?'':' (archivado)'} (${disp(p)} ${p.esCombo?'posibles':'listos'})</option>`).join('')}</select>
       <input type="number" min="1" value="${l.q}" onchange="pedRead();draft[${ix}].q=Math.max(1,parseInt(this.value)||1);pedModal()"><button class="rm" onclick="pedRead();draft.splice(${ix},1);if(!draft.length)draft.push({p:activos()[0].id,q:1});pedModal()">×</button></div>`).join('')}
     <button class="btn ghost sm" onclick="pedRead();draft.push({p:activos()[0].id,q:1});pedModal()">+ otro producto</button></div>
     ${aviso}
@@ -592,7 +661,7 @@ function vPrecios(){
   ${activos().length?S.canales.map(c=>`<div class="card tw" style="margin-bottom:14px"><h3 style="margin-bottom:8px">${esc(c.nombre)}</h3>
     <table><thead><tr><th>Producto</th><th class="r">Costo</th><th class="r">Precio de venta</th><th class="r">Te queda</th><th class="r">Margen</th><th class="r">Sugerido</th></tr></thead><tbody>
     ${activos().map(p=>{const pr=p.precios[c.id]||0;const co=costo(p);const n=neto(c,pr)-co;const m=pr?n/pr*100:0;const sg=Math.round(sugerido(p,c)/100)*100;
-      return `<tr><td>${esc(nom(p))}</td><td class="r">${money(co)}</td>
+      return `<tr><td>${esc(nom(p))}${p.esCombo?`<div class="muted">por separado: ${money(sepPrecio(p,c.id))}${pr&&sepPrecio(p,c.id)?` · descuento ${Math.round((1-pr/sepPrecio(p,c.id))*100)}%`:''}</div>`:''}</td><td class="r">${money(co)}</td>
       <td class="r"><input class="n" type="number" value="${pr}" onchange="setPrecio(${p.id},'${c.id}',this.value)"></td>
       <td class="r ${n>=0?'pos':'neg'}">${pr?money(n):'—'}</td>
       <td class="r"><span class="tag ${m>=S.config.margenObjetivo?'ok':m>=20?'warn':'bad'}">${pr?m.toFixed(0)+'%':'—'}</span></td>
