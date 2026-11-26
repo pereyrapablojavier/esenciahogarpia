@@ -100,6 +100,7 @@ label{font-size:12px;color:var(--gray);display:block;margin-bottom:3px}
 .foot button{margin-top:8px}
 #out{display:none;position:fixed;top:10px;right:12px;z-index:9}
 @media(max-width:820px){#out{display:block}}
+.qn{width:84px;text-align:center;padding:5px 6px}
 .tagc{border:1px solid var(--line);background:#fff;color:var(--gray);border-radius:99px;padding:3px 11px;font-size:12px;cursor:pointer;font-family:inherit}
 .tagc.on{background:var(--primary);border-color:var(--primary);color:#fff}
 </style>
@@ -246,23 +247,28 @@ function vStock(){
     ${S.filamentos.map(f=>{const pc=Math.min(100,f.resta/f.rollo*100);return `<tr>
       <td>${esc(f.marca)} · ${esc(f.material)}</td><td><span class="sw" style="background:${esc(f.hex)}"></span>${esc(f.color)}</td>
       <td style="min-width:120px"><div class="bar ${pc<20?'low':''}"><i style="width:${pc}%"></i></div></td>
-      <td>${f.resta} g ${pc<20?'<span class="tag bad">poco</span>':''}</td><td class="r">${money(f.costoKg)}</td>
+      <td style="white-space:nowrap"><input class="n" type="number" min="0" step="any" value="${f.resta}" onchange="setCant('filamentos',${f.id},'resta',this.value)" style="width:84px"> g ${pc<20?'<span class="tag bad">poco</span>':''}</td><td class="r">${money(f.costoKg)}</td>
       <td class="r" style="white-space:nowrap"><button class="btn ghost sm" onclick="editFil(${f.id})">Editar</button> <button class="btn ghost sm" onclick="askDel('filamentos',${f.id})" title="Eliminar">🗑</button></td></tr>`}).join('')}</tbody></table></div>`;
   }else if(t==='insumos'){
     body=!S.insumos.length?vacio('Todavía no cargaste materiales (cajas, esencias, arcilla, cera...).'):`<div class="tw"><table><thead><tr><th>Material</th><th>Categoría</th><th>Cantidad</th><th class="r">Costo unit.</th><th></th></tr></thead><tbody>
     ${S.insumos.map(i=>`<tr><td>${esc(i.nombre)}</td><td><span class="tag">${esc(i.cat)}</span></td>
-      <td><span class="qty"><button onclick="adj('insumos',${i.id},-1)">−</button><b>${i.cant} ${esc(i.un)}</b><button onclick="adj('insumos',${i.id},1)">+</button></span> ${i.cant<i.min?'<span class="tag bad">bajo</span>':''}</td>
+      <td><span class="qty"><button onclick="adj('insumos',${i.id},-1)">−</button><input class="qn" type="number" min="0" step="any" value="${i.cant}" onchange="setCant('insumos',${i.id},'cant',this.value)"><span class="muted">${esc(i.un)}</span><button onclick="adj('insumos',${i.id},1)">+</button></span> ${i.cant<i.min?'<span class="tag bad">bajo</span>':''}</td>
       <td class="r">${money(i.costo)}/${esc(i.un)}</td><td class="r" style="white-space:nowrap"><span class="muted">mín. ${i.min}</span> <button class="btn ghost sm" onclick="editIns(${i.id})">Editar</button> <button class="btn ghost sm" onclick="askDel('insumos',${i.id})" title="Eliminar">🗑</button></td></tr>`).join('')}</tbody></table></div>`;
   }else{
     body=!activos().length?vacio('Primero creá tus productos en la pestaña Productos.'):`<div class="tw"><table><thead><tr><th>Producto</th><th>Línea</th><th>Unidades listas</th></tr></thead><tbody>
     ${activos().map(p=>`<tr><td>${esc(nom(p))}</td><td><span class="tag">${p.linea}</span></td>
-      <td><span class="qty"><button onclick="adj('productos',${p.id},-1,'stock')">−</button><b>${p.stock}</b><button onclick="adj('productos',${p.id},1,'stock')">+</button></span> ${p.stock<3?'<span class="tag warn">pocas</span>':''}</td></tr>`).join('')}</tbody></table></div>`;
+      <td><span class="qty"><button onclick="adj('productos',${p.id},-1,'stock')">−</button><input class="qn" type="number" min="0" step="1" value="${p.stock}" onchange="setCant('productos',${p.id},'stock',this.value)"><button onclick="adj('productos',${p.id},1,'stock')">+</button></span> ${p.stock<3?'<span class="tag warn">pocas</span>':''}</td></tr>`).join('')}</tbody></table></div>`;
   }
   $('#main').innerHTML=`<div class="top"><h1>Stock</h1>
     ${t==='insumos'?'<button class="btn" onclick="newIns()">+ Material</button>':t==='filamentos'?'<button class="btn" onclick="newFil()">+ Filamento</button>':''}</div>
     <div class="tabs">${tabs.map(([k,n])=>`<button class="${t===k?'on':''}" onclick="S.tabStock='${k}';render()">${n}</button>`).join('')}</div>
     <div class="card">${body}</div>`;
 }
+/* Escribir la cantidad directamente (además de los botones + y −). */
+function setCant(col,id,key,val){
+  let v=parseFloat(val);if(!isFinite(v)||v<0)return toast('Poné un número de 0 en adelante.');
+  v=key==='stock'?Math.round(v):+v.toFixed(2);
+  act(()=>ok(sb.from(col).update({[key]:v}).eq('id',id)))}
 function adj(col,id,d,key='cant'){const v=Math.max(0,+(byId(S[col],id)[key]+d).toFixed(2));act(()=>ok(sb.from(col).update({[key]:v}).eq('id',id)))}
 function openModal(html){$('#box').innerHTML=html;$('#modal').classList.add('on')}
 function closeModal(){$('#modal').classList.remove('on')}
