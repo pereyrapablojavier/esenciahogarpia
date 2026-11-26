@@ -144,7 +144,13 @@ const canal=id=>S.canales.find(c=>c.id===id);
 /* ---------- Acceso a datos ---------- */
 async function ok(p){const r=await p;if(r.error)throw new Error(r.error.message);return r.data}
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('on'),4500)}
-async function act(fn){try{await fn();await load();render()}catch(e){toast('No se pudo guardar: '+e.message)}}
+async function act(fn){
+  try{await fn();await load();render()}
+  catch(e){
+    const m=/foreign key|violates/i.test(e.message)?'Está en uso en un producto: sacalo primero de la receta.':e.message;
+    toast('No se pudo guardar: '+m);
+  }
+}
 async function load(){
   const q=t=>ok(sb.from(t).select('*'));
   const [cfg,can,fil,ins,pro,pf,pi,pr,ped,pit]=await Promise.all(
@@ -153,13 +159,16 @@ async function load(){
   S.canales=can.map(c=>({id:c.id,nombre:c.nombre,com:+c.comision,fijo:+c.fijo}));
   S.filamentos=fil.map(f=>({id:f.id,marca:f.marca,material:f.material,color:f.color,hex:f.hex,costoKg:+f.costo_kg,rollo:+f.rollo,resta:+f.resta})).sort((a,b)=>a.id-b.id);
   S.insumos=ins.map(i=>({id:i.id,nombre:i.nombre,cat:i.cat,un:i.un,cant:+i.cant,min:+i.min,costo:+i.costo})).sort((a,b)=>a.id-b.id);
-  S.productos=pro.map(p=>({id:p.id,nombre:p.nombre,linea:p.linea,horas:+p.horas,directo:+p.directo,stock:p.stock,
+  S.productos=pro.map(p=>({id:p.id,nombre:p.nombre,linea:p.linea,horas:+p.horas,directo:+p.directo,stock:p.stock,activo:p.activo!==false,
     fil:pf.filter(x=>x.producto_id===p.id).map(x=>({id:x.filamento_id,g:+x.g})),
     ins:pi.filter(x=>x.producto_id===p.id).map(x=>({id:x.insumo_id,q:+x.q})),
     precios:Object.fromEntries(pr.filter(x=>x.producto_id===p.id).map(x=>[x.canal_id,+x.precio]))})).sort((a,b)=>a.id-b.id);
   S.pedidos=ped.map(o=>({id:o.id,fecha:o.fecha,cliente:o.cliente,canal:o.canal_id,estado:o.estado,faltan:o.faltan,
-    items:pit.filter(x=>x.pedido_id===o.id).map(x=>({p:x.producto_id,q:x.q}))})).sort((a,b)=>a.id-b.id);
+    com:o.comision==null?null:+o.comision,fijo:o.fijo==null?null:+o.fijo,
+    items:pit.filter(x=>x.pedido_id===o.id).map(x=>({p:x.producto_id,q:x.q,
+      precio:x.precio_unit==null?null:+x.precio_unit,costo:x.costo_unit==null?null:+x.costo_unit}))})).sort((a,b)=>a.id-b.id);
 }
+const activos=()=>S.productos.filter(p=>p.activo);
 
 /* ---------- Cálculos ---------- */
 function costo(p){
@@ -169,8 +178,14 @@ function costo(p){
 }
 function neto(c,precio){return precio*(1-c.com/100)-c.fijo}
 function sugerido(p,c){const m=S.config.margenObjetivo/100;return (costo(p)+c.fijo)/(1-c.com/100-m)}
-function totalPedido(o){return o.items.reduce((a,i)=>a+i.q*((byId(S.productos,i.p)?.precios[o.canal])||0),0)}
-function gananciaPedido(o){const c=canal(o.canal);if(!c)return 0;return o.items.reduce((a,i)=>{const p=byId(S.productos,i.p);if(!p)return a;return a+i.q*(neto(c,p.precios[o.canal]||0)-costo(p))},0)}
+/* Cada pedido guarda el precio, el costo y la comisión del momento de la venta:
+   cambiar precios o costos después no altera el historial. */
+const precioItem=(o,i)=>i.precio!=null?i.precio:((byId(S.productos,i.p)?.precios[o.canal])||0);
+const costoItem=i=>i.costo!=null?i.costo:(byId(S.productos,i.p)?costo(byId(S.productos,i.p)):0);
+function totalPedido(o){return o.items.reduce((a,i)=>a+i.q*precioItem(o,i),0)}
+function gananciaPedido(o){
+  const c=canal(o.canal);const com=o.com!=null?o.com:(c?c.com:0),fijo=o.fijo!=null?o.fijo:(c?c.fijo:0);
+  return o.items.reduce((a,i)=>a+i.q*(precioItem(o,i)*(1-com/100)-fijo-costoItem(i)),0)}
 function alertas(){
   const a=[];
   S.filamentos.forEach(f=>{if(f.resta<f.rollo*0.2)a.push({t:`${f.material} ${f.color}`,d:`quedan ${f.resta} g`})});
@@ -198,7 +213,7 @@ function vPanel(){
   const gan=S.pedidos.reduce((a,o)=>a+gananciaPedido(o),0);
   const pend=S.pedidos.filter(o=>o.estado!=='Entregado').length;
   const al=alertas();
-  const rank=S.productos.map(p=>{const c=canal('tn')||S.canales[0];return {p,m:c?neto(c,p.precios[c.id]||0)-costo(p):0}}).sort((a,b)=>b.m-a.m).slice(0,6);
+  const rank=activos().map(p=>{const c=canal('tn')||S.canales[0];return {p,m:c?neto(c,p.precios[c.id]||0)-costo(p):0}}).sort((a,b)=>b.m-a.m).slice(0,6);
   $('#main').innerHTML=`
   <div class="top"><div><h1>Hola 👋</h1><div class="muted">Resumen de Esencia Hogar PIA</div></div></div>
   ${!S.filamentos.length&&!S.productos.length?'<div class="note">Todavía no hay datos. Empezá por <b>Stock</b>: cargá tus filamentos e insumos. Después creá tus <b>Productos</b> con su receta y los precios.</div>':''}
@@ -227,15 +242,15 @@ function vStock(){
       <td>${esc(f.marca)} · ${esc(f.material)}</td><td><span class="sw" style="background:${esc(f.hex)}"></span>${esc(f.color)}</td>
       <td style="min-width:120px"><div class="bar ${pc<20?'low':''}"><i style="width:${pc}%"></i></div></td>
       <td>${f.resta} g ${pc<20?'<span class="tag bad">poco</span>':''}</td><td class="r">${money(f.costoKg)}</td>
-      <td class="r"><button class="btn ghost sm" onclick="editFil(${f.id})">Ajustar</button></td></tr>`}).join('')}</tbody></table></div>`;
+      <td class="r" style="white-space:nowrap"><button class="btn ghost sm" onclick="editFil(${f.id})">Editar</button> <button class="btn ghost sm" onclick="askDel('filamentos',${f.id})" title="Eliminar">🗑</button></td></tr>`}).join('')}</tbody></table></div>`;
   }else if(t==='insumos'){
     body=!S.insumos.length?vacio('Todavía no cargaste materiales (cajas, esencias, arcilla, cera...).'):`<div class="tw"><table><thead><tr><th>Material</th><th>Categoría</th><th>Cantidad</th><th class="r">Costo unit.</th><th></th></tr></thead><tbody>
     ${S.insumos.map(i=>`<tr><td>${esc(i.nombre)}</td><td><span class="tag">${esc(i.cat)}</span></td>
       <td><span class="qty"><button onclick="adj('insumos',${i.id},-1)">−</button><b>${i.cant} ${esc(i.un)}</b><button onclick="adj('insumos',${i.id},1)">+</button></span> ${i.cant<i.min?'<span class="tag bad">bajo</span>':''}</td>
-      <td class="r">${money(i.costo)}/${esc(i.un)}</td><td class="muted r">mín. ${i.min}</td></tr>`).join('')}</tbody></table></div>`;
+      <td class="r">${money(i.costo)}/${esc(i.un)}</td><td class="r" style="white-space:nowrap"><span class="muted">mín. ${i.min}</span> <button class="btn ghost sm" onclick="editIns(${i.id})">Editar</button> <button class="btn ghost sm" onclick="askDel('insumos',${i.id})" title="Eliminar">🗑</button></td></tr>`).join('')}</tbody></table></div>`;
   }else{
-    body=!S.productos.length?vacio('Primero creá tus productos en la pestaña Productos.'):`<div class="tw"><table><thead><tr><th>Producto</th><th>Línea</th><th>Unidades listas</th></tr></thead><tbody>
-    ${S.productos.map(p=>`<tr><td>${esc(p.nombre)}</td><td><span class="tag">${p.linea}</span></td>
+    body=!activos().length?vacio('Primero creá tus productos en la pestaña Productos.'):`<div class="tw"><table><thead><tr><th>Producto</th><th>Línea</th><th>Unidades listas</th></tr></thead><tbody>
+    ${activos().map(p=>`<tr><td>${esc(p.nombre)}</td><td><span class="tag">${p.linea}</span></td>
       <td><span class="qty"><button onclick="adj('productos',${p.id},-1,'stock')">−</button><b>${p.stock}</b><button onclick="adj('productos',${p.id},1,'stock')">+</button></span> ${p.stock<3?'<span class="tag warn">pocas</span>':''}</td></tr>`).join('')}</tbody></table></div>`;
   }
   $('#main').innerHTML=`<div class="top"><h1>Stock</h1>
@@ -248,11 +263,35 @@ function openModal(html){$('#box').innerHTML=html;$('#modal').classList.add('on'
 function closeModal(){$('#modal').classList.remove('on')}
 const num=id=>{const v=parseFloat($(id).value);return isFinite(v)?v:0};
 function editFil(id){const f=byId(S.filamentos,id);
-  openModal(`<h2>Ajustar ${esc(f.material)} ${esc(f.color)}</h2><div class="form">
-  <div><label>Gramos que quedan</label><input id="a1" type="number" value="${f.resta}"></div>
-  <div><label>Costo por kg ($)</label><input id="a2" type="number" value="${f.costoKg}"></div></div>
+  openModal(`<h2>Editar ${esc(f.material)} ${esc(f.color)}</h2><div class="form">
+  <div><label>Marca</label><input id="a1" value="${esc(f.marca)}"></div>
+  <div><label>Material</label><select id="a2">${['PLA','PETG','ABS','TPU'].map(m=>`<option ${f.material===m?'selected':''}>${m}</option>`).join('')}</select></div>
+  <div><label>Color</label><input id="a3" value="${esc(f.color)}"></div>
+  <div><label>Tono</label><input id="a4" type="color" value="${esc(f.hex)}" style="height:38px;padding:3px"></div>
+  <div><label>Gramos que quedan</label><input id="a5" type="number" value="${f.resta}"></div>
+  <div><label>Gramos del rollo</label><input id="a6" type="number" value="${f.rollo}"></div>
+  <div class="full"><label>Costo por kg ($)</label><input id="a7" type="number" value="${f.costoKg}"></div></div>
   <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="saveFil(${id})">Guardar</button></div>`)}
-function saveFil(id){const r=num('#a1'),c=num('#a2');closeModal();act(()=>ok(sb.from('filamentos').update({resta:r,costo_kg:c}).eq('id',id)))}
+function saveFil(id){const color=$('#a3').value.trim();if(!color)return toast('Poné el color del filamento.');
+  const row={marca:$('#a1').value.trim(),material:$('#a2').value,color,hex:$('#a4').value,resta:num('#a5'),rollo:num('#a6')||1000,costo_kg:num('#a7')};
+  closeModal();act(()=>ok(sb.from('filamentos').update(row).eq('id',id)))}
+function editIns(id){const i=byId(S.insumos,id);
+  openModal(`<h2>Editar ${esc(i.nombre)}</h2><div class="form">
+  <div class="full"><label>Nombre</label><input id="a1" value="${esc(i.nombre)}"></div>
+  <div><label>Categoría</label><select id="a2">${['Packaging','Aromas','Cerámica','3D','Otros'].map(c=>`<option ${i.cat===c?'selected':''}>${c}</option>`).join('')}</select></div>
+  <div><label>Unidad</label><select id="a3">${['u','g','ml','kg','l','m'].map(u=>`<option ${i.un===u?'selected':''}>${u}</option>`).join('')}</select></div>
+  <div><label>Cantidad</label><input id="a4" type="number" step="any" value="${i.cant}"></div>
+  <div><label>Stock mínimo</label><input id="a5" type="number" step="any" value="${i.min}"></div>
+  <div class="full"><label>Costo por unidad ($)</label><input id="a6" type="number" step="any" value="${i.costo}"></div></div>
+  <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="saveIns(${id})">Guardar</button></div>`)}
+function saveIns(id){const nombre=$('#a1').value.trim();if(!nombre)return toast('Poné el nombre del material.');
+  const row={nombre,cat:$('#a2').value,un:$('#a3').value,cant:num('#a4'),min:num('#a5'),costo:num('#a6')};
+  closeModal();act(()=>ok(sb.from('insumos').update(row).eq('id',id)))}
+/* Eliminar: pide confirmación; si está en la receta de algún producto, la base lo rechaza. */
+function askDel(col,id){const x=byId(S[col],id);const n=col==='filamentos'?`${x.material} ${x.color}`:x.nombre;
+  openModal(`<h2>¿Eliminar «${esc(n)}»?</h2><p class="muted">Esto no se puede deshacer. Si está en la receta de algún producto, primero hay que sacarlo de ahí.</p>
+  <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" style="background:#b84a47" onclick="doDel('${col}',${id})">Sí, eliminar</button></div>`)}
+function doDel(col,id){closeModal();act(()=>ok(sb.from(col).delete().eq('id',id)))}
 function newFil(){openModal(`<h2>Nuevo filamento</h2><div class="form">
   <div><label>Marca</label><input id="a1"></div>
   <div><label>Material</label><select id="a2"><option>PLA</option><option>PETG</option><option>ABS</option><option>TPU</option></select></div>
@@ -279,7 +318,7 @@ function addIns(){const nombre=$('#a1').value.trim();if(!nombre)return toast('Po
 /* ---------- Productos ---------- */
 function vProductos(){
   const lineas=['todas','3D','Cerámica','Aromas'];
-  const list=S.productos.filter(p=>S.tabProd==='todas'||p.linea===S.tabProd);
+  const list=activos().filter(p=>S.tabProd==='todas'||p.linea===S.tabProd);
   $('#main').innerHTML=`<div class="top"><h1>Productos</h1><button class="btn" onclick="newProd()">+ Producto</button></div>
   <div class="note">El costo se calcula solo: filamento (gramos × costo/kg) + horas de impresión + insumos + costo directo. Si cambia el precio del filamento, cambia el costo de todos los productos.</div>
   <div class="tabs">${lineas.map(l=>`<button class="${S.tabProd===l?'on':''}" onclick="S.tabProd='${l}';render()">${l==='todas'?'Todas':l}</button>`).join('')}</div>
@@ -290,13 +329,20 @@ function vProductos(){
     return `<div class="card"><div style="display:flex;justify-content:space-between;gap:8px"><h3>${esc(p.nombre)}</h3><span class="tag">${p.linea}</span></div>
       <div class="muted" style="margin:8px 0;min-height:36px">${det.join(' · ')}</div>
       <div style="display:flex;justify-content:space-between;align-items:end"><div><div class="muted">Costo</div><b style="font-family:var(--hf);font-size:22px">${money(c)}</b></div>
-      <div class="r"><div class="muted">Listos</div><b>${p.stock} u.</b></div></div></div>`}).join('')}
+      <div class="r"><div class="muted">Listos</div><b>${p.stock} u.</b></div></div>
+      <div style="margin-top:12px"><button class="btn ghost sm" onclick="editProd(${p.id})">Editar</button></div></div>`}).join('')}
   </div>`;
 }
-let dp={fil:[],ins:[]};
-function newProd(){dp={fil:[],ins:[],v:{}};prodModal()}
+let dp={id:null,fil:[],ins:[],v:{}};
+function newProd(){dp={id:null,fil:[],ins:[],v:{}};prodModal()}
+function editProd(id){const p=byId(S.productos,id);
+  dp={id,fil:p.fil.map(x=>({...x})),ins:p.ins.map(x=>({...x})),v:{nombre:p.nombre,linea:p.linea,stock:p.stock,horas:p.horas,directo:p.directo}};prodModal()}
+function askArchive(){const p=byId(S.productos,dp.id);
+  openModal(`<h2>¿Archivar «${esc(p.nombre)}»?</h2><p class="muted">Deja de aparecer en productos, stock, precios y pedidos nuevos. Los pedidos que ya hiciste con este producto se conservan tal cual, con su precio y costo de ese momento.</p>
+  <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" style="background:#b84a47" onclick="doArchive(${dp.id})">Sí, archivar</button></div>`)}
+function doArchive(id){closeModal();act(()=>ok(sb.from('productos').update({activo:false}).eq('id',id)))}
 function readProd(){
-  dp.v={nombre:$('#p1').value,linea:$('#p2').value,stock:$('#p3').value,horas:$('#p6').value,directo:$('#p7').value};
+  dp.v={nombre:$('#p1').value,linea:$('#p2').value,stock:dp.id?dp.v.stock:$('#p3').value,horas:$('#p6').value,directo:$('#p7').value};
   dp.fil=[...document.querySelectorAll('.lf')].map(r=>({id:+r.querySelector('select').value,g:parseFloat(r.querySelector('input').value)||0}));
   dp.ins=[...document.querySelectorAll('.li')].map(r=>({id:+r.querySelector('select').value,q:parseFloat(r.querySelector('input').value)||0}));
 }
@@ -305,10 +351,10 @@ function prodModal(){
   const optF=S.filamentos.map(f=>`<option value="${f.id}">${esc(f.material)} ${esc(f.color)}</option>`).join('');
   const optI=S.insumos.map(i=>`<option value="${i.id}">${esc(i.nombre)} (${esc(i.un)})</option>`).join('');
   const sel=(opts,id)=>opts.replace(`value="${id}"`,`value="${id}" selected`);
-  openModal(`<h2>Nuevo producto</h2><div class="form">
+  openModal(`<h2>${dp.id?'Editar producto':'Nuevo producto'}</h2><div class="form">
   <div class="full"><label>Nombre</label><input id="p1" value="${esc(v.nombre||'')}"></div>
   <div><label>Línea</label><select id="p2">${['3D','Cerámica','Aromas'].map(l=>`<option ${v.linea===l?'selected':''}>${l}</option>`).join('')}</select></div>
-  <div><label>Unidades listas</label><input id="p3" type="number" value="${v.stock||0}"></div>
+  ${dp.id?`<div><label>Unidades listas</label><div class="muted" style="padding:9px 2px">${v.stock} · se ajusta en Stock</div><input id="p3" type="hidden" value="${v.stock}"></div>`:`<div><label>Unidades listas</label><input id="p3" type="number" value="${v.stock||0}"></div>`}
   <div><label>Horas de impresión</label><input id="p6" type="number" step="0.5" value="${v.horas||0}"></div>
   <div><label>Costo directo ($) · arcilla, cera, etc.</label><input id="p7" type="number" value="${v.directo||0}"></div></div>
   <div style="margin-top:14px"><label>Filamentos (gramos por unidad)</label>
@@ -317,19 +363,17 @@ function prodModal(){
   <div style="margin-top:14px"><label>Insumos (cantidad por unidad)</label>
   ${dp.ins.map((l,ix)=>`<div class="line li"><select>${sel(optI,l.id)}</select><input type="number" min="0" step="any" value="${l.q}" placeholder="cant."><button class="rm" onclick="readProd();dp.ins.splice(${ix},1);prodModal()">×</button></div>`).join('')}
   ${S.insumos.length?`<button class="btn ghost sm" onclick="readProd();dp.ins.push({id:${S.insumos[0].id},q:1});prodModal()">+ insumo</button>`:'<span class="muted">Cargá materiales en Stock para usarlos acá.</span>'}</div>
-  <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="addProd()">Guardar producto</button></div>`);
+  <div class="acts" style="justify-content:space-between">${dp.id?'<button class="btn ghost" style="color:#b84a47;border-color:#b84a47" onclick="readProd();askArchive()">Archivar</button>':'<span></span>'}
+    <span style="display:flex;gap:8px"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="addProd()">Guardar producto</button></span></div>`);
 }
+/* Guardar (crear o editar) va por una función de la base que reemplaza la receta de una sola vez. */
 function addProd(){
   readProd();const v=dp.v;const nombre=v.nombre.trim();if(!nombre)return toast('Poné el nombre del producto.');
-  const merge=(arr,k)=>Object.values(arr.filter(x=>x[k]>0).reduce((m,x)=>{m[x.id]=m[x.id]?{id:x.id,[k]:m[x.id][k]+x[k]}:{...x};return m},{}));
-  const fil=merge(dp.fil,'g'),ins=merge(dp.ins,'q');
+  const fil=dp.fil.filter(x=>x.g>0).map(x=>({id:x.id,g:x.g})),ins=dp.ins.filter(x=>x.q>0).map(x=>({id:x.id,q:x.q}));
+  const args={p_id:dp.id,p_nombre:nombre,p_linea:v.linea,p_horas:parseFloat(v.horas)||0,p_directo:parseFloat(v.directo)||0,
+    p_stock:Math.max(0,parseInt(v.stock)||0),p_fil:fil,p_ins:ins};
   closeModal();
-  act(async()=>{
-    const [p]=await ok(sb.from('productos').insert({nombre,linea:v.linea,stock:Math.max(0,parseInt(v.stock)||0),horas:parseFloat(v.horas)||0,directo:parseFloat(v.directo)||0}).select());
-    if(fil.length)await ok(sb.from('producto_filamentos').insert(fil.map(x=>({producto_id:p.id,filamento_id:x.id,g:x.g}))));
-    if(ins.length)await ok(sb.from('producto_insumos').insert(ins.map(x=>({producto_id:p.id,insumo_id:x.id,q:x.q}))));
-    if(S.canales.length)await ok(sb.from('precios').insert(S.canales.map(c=>({producto_id:p.id,canal_id:c.id,precio:0}))));
-  });
+  act(()=>ok(sb.rpc('guardar_producto',args)));
 }
 
 /* ---------- Pedidos ---------- */
@@ -345,9 +389,9 @@ function vPedidos(){
 function nextEstado(id){const o=byId(S.pedidos,id);const e=ESTADOS[(ESTADOS.indexOf(o.estado)+1)%ESTADOS.length];act(()=>ok(sb.from('pedidos').update({estado:e}).eq('id',id)))}
 let draft=[];let pv={c:'',ca:''};
 function newPed(){
-  if(!S.productos.length)return toast('Primero creá al menos un producto.');
+  if(!activos().length)return toast('Primero creá al menos un producto.');
   if(!S.canales.length)return toast('No hay canales de venta cargados.');
-  draft=[{p:S.productos[0].id,q:1}];pv={c:'',ca:S.canales[S.canales.length-1].id};pedModal()}
+  draft=[{p:activos()[0].id,q:1}];pv={c:'',ca:S.canales[S.canales.length-1].id};pedModal()}
 function pedRead(){pv={c:$('#pc').value,ca:$('#pca').value}}
 function pedModal(){
   const faltas=draft.map(l=>Math.max(0,l.q-byId(S.productos,l.p).stock));
@@ -362,9 +406,9 @@ function pedModal(){
     <div><label>Cliente / referencia</label><input id="pc" value="${esc(pv.c)}"></div>
     <div><label>Canal de venta</label><select id="pca" onchange="pedRead();pedModal()">${S.canales.map(c=>`<option value="${c.id}" ${c.id===pv.ca?'selected':''}>${esc(c.nombre)}</option>`).join('')}</select></div></div>
     <div style="margin-top:14px"><label>Productos</label>
-    ${draft.map((l,ix)=>`<div class="line"><select onchange="pedRead();draft[${ix}].p=+this.value;pedModal()">${S.productos.map(p=>`<option value="${p.id}" ${p.id===l.p?'selected':''}>${esc(p.nombre)} (${p.stock} listos)</option>`).join('')}</select>
-      <input type="number" min="1" value="${l.q}" onchange="pedRead();draft[${ix}].q=Math.max(1,parseInt(this.value)||1);pedModal()"><button class="rm" onclick="pedRead();draft.splice(${ix},1);if(!draft.length)draft.push({p:S.productos[0].id,q:1});pedModal()">×</button></div>`).join('')}
-    <button class="btn ghost sm" onclick="pedRead();draft.push({p:S.productos[0].id,q:1});pedModal()">+ otro producto</button></div>
+    ${draft.map((l,ix)=>`<div class="line"><select onchange="pedRead();draft[${ix}].p=+this.value;pedModal()">${activos().map(p=>`<option value="${p.id}" ${p.id===l.p?'selected':''}>${esc(p.nombre)} (${p.stock} listos)</option>`).join('')}</select>
+      <input type="number" min="1" value="${l.q}" onchange="pedRead();draft[${ix}].q=Math.max(1,parseInt(this.value)||1);pedModal()"><button class="rm" onclick="pedRead();draft.splice(${ix},1);if(!draft.length)draft.push({p:activos()[0].id,q:1});pedModal()">×</button></div>`).join('')}
+    <button class="btn ghost sm" onclick="pedRead();draft.push({p:activos()[0].id,q:1});pedModal()">+ otro producto</button></div>
     ${aviso}
     <div style="margin-top:12px"><b>Total: ${money(total)}</b></div>
     <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="savePed()">Guardar pedido</button></div>`);
@@ -392,10 +436,10 @@ function vPrecios(){
       <div><label>Costo por hora de impresión ($)</label><input type="number" value="${S.config.costoHora}" onchange="setConf('costo_hora',this.value)"></div>
       <div><label>Margen objetivo (%)</label><input type="number" value="${S.config.margenObjetivo}" onchange="setConf('margen_objetivo',this.value)"></div></div></div>
   </div>
-  ${!S.productos.length?'<div class="card">'+vacio('Creá productos para poder ponerles precio.')+'</div>':''}
-  ${S.productos.length?S.canales.map(c=>`<div class="card tw" style="margin-bottom:14px"><h3 style="margin-bottom:8px">${esc(c.nombre)}</h3>
+  ${!activos().length?'<div class="card">'+vacio('Creá productos para poder ponerles precio.')+'</div>':''}
+  ${activos().length?S.canales.map(c=>`<div class="card tw" style="margin-bottom:14px"><h3 style="margin-bottom:8px">${esc(c.nombre)}</h3>
     <table><thead><tr><th>Producto</th><th class="r">Costo</th><th class="r">Precio de venta</th><th class="r">Te queda</th><th class="r">Margen</th><th class="r">Sugerido</th></tr></thead><tbody>
-    ${S.productos.map(p=>{const pr=p.precios[c.id]||0;const co=costo(p);const n=neto(c,pr)-co;const m=pr?n/pr*100:0;const sg=Math.round(sugerido(p,c)/100)*100;
+    ${activos().map(p=>{const pr=p.precios[c.id]||0;const co=costo(p);const n=neto(c,pr)-co;const m=pr?n/pr*100:0;const sg=Math.round(sugerido(p,c)/100)*100;
       return `<tr><td>${esc(p.nombre)}</td><td class="r">${money(co)}</td>
       <td class="r"><input class="n" type="number" value="${pr}" onchange="setPrecio(${p.id},'${c.id}',this.value)"></td>
       <td class="r ${n>=0?'pos':'neg'}">${pr?money(n):'—'}</td>
