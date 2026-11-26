@@ -135,8 +135,8 @@ const SUPABASE_URL='https://omsqeklrbstoirljrhjb.supabase.co';
 const SUPABASE_KEY='sb_publishable_vzXjLm2Y152Gk2F1rjMD-Q_AJVKVd_m';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-const S={config:{costoHora:350,margenObjetivo:40},canales:[],filamentos:[],insumos:[],productos:[],pedidos:[],
-  tabStock:'filamentos',tabProd:'todas',view:'panel',email:'',q:'',tagsSel:[],stockF:'todos',group:'ninguno',aq:'',aLinea:'todas',aStock:'todos',aTags:[]};
+const S={config:{costoHora:350,margenObjetivo:40,packaging:0},canales:[],filamentos:[],insumos:[],productos:[],pedidos:[],
+  tabStock:'filamentos',tabProd:'todas',view:'panel',email:'',q:'',tagsSel:[],stockF:'todos',group:'ninguno',aq:'',aLinea:'todas',aStock:'todos',aTags:[],sq:'',pq:'',pEstado:'todos',pCanal:'todos',prq:''};
 const STOCK_INICIAL=10; // unidades listas con las que arranca todo producto o variante nuevo
 const ESTADOS=['Pendiente','Preparando','Enviado','Entregado'];
 const $=s=>document.querySelector(s);
@@ -159,7 +159,7 @@ async function load(){
   const q=t=>ok(sb.from(t).select('*'));
   const [cfg,can,fil,ins,pro,pf,pi,pr,ped,pit,cco]=await Promise.all(
     ['config','canales','filamentos','insumos','productos','producto_filamentos','producto_insumos','precios','pedidos','pedido_items','combo_componentes'].map(q));
-  if(cfg[0])S.config={costoHora:+cfg[0].costo_hora,margenObjetivo:+cfg[0].margen_objetivo};
+  if(cfg[0])S.config={costoHora:+cfg[0].costo_hora,margenObjetivo:+cfg[0].margen_objetivo,packaging:+cfg[0].packaging||0};
   S.canales=can.map(c=>({id:c.id,nombre:c.nombre,com:+c.comision,fijo:+c.fijo}));
   S.filamentos=fil.map(f=>({id:f.id,marca:f.marca,material:f.material,color:f.color,hex:f.hex,costoKg:+f.costo_kg,rollo:+f.rollo,resta:+f.resta})).sort((a,b)=>a.id-b.id);
   S.insumos=ins.map(i=>({id:i.id,nombre:i.nombre,cat:i.cat,un:i.un,cant:+i.cant,min:+i.min,costo:+i.costo})).sort((a,b)=>a.id-b.id);
@@ -169,7 +169,7 @@ async function load(){
     ins:pi.filter(x=>x.producto_id===p.id).map(x=>({id:x.insumo_id,q:+x.q})),
     precios:Object.fromEntries(pr.filter(x=>x.producto_id===p.id).map(x=>[x.canal_id,+x.precio]))})).sort((a,b)=>a.id-b.id);
   S.pedidos=ped.map(o=>({id:o.id,fecha:o.fecha,cliente:o.cliente,canal:o.canal_id,estado:o.estado,faltan:o.faltan,
-    com:o.comision==null?null:+o.comision,fijo:o.fijo==null?null:+o.fijo,
+    com:o.comision==null?null:+o.comision,fijo:o.fijo==null?null:+o.fijo,packaging:+o.packaging||0,
     items:pit.filter(x=>x.pedido_id===o.id).map(x=>({p:x.producto_id,q:x.q,
       precio:x.precio_unit==null?null:+x.precio_unit,costo:x.costo_unit==null?null:+x.costo_unit,de:x.de_stock||0}))})).sort((a,b)=>a.id-b.id);
 }
@@ -198,7 +198,7 @@ const costoItem=i=>i.costo!=null?i.costo:(byId(S.productos,i.p)?costo(byId(S.pro
 function totalPedido(o){return o.items.reduce((a,i)=>a+i.q*precioItem(o,i),0)}
 function gananciaPedido(o){
   const c=canal(o.canal);const com=o.com!=null?o.com:(c?c.com:0),fijo=o.fijo!=null?o.fijo:(c?c.fijo:0);
-  return o.items.reduce((a,i)=>a+i.q*(precioItem(o,i)*(1-com/100)-fijo-costoItem(i)),0)}
+  return o.items.reduce((a,i)=>a+i.q*(precioItem(o,i)*(1-com/100)-fijo-costoItem(i)),0)-(o.packaging||0)}
 function alertas(){
   const a=[];
   S.filamentos.forEach(f=>{if(f.resta<f.rollo*0.2)a.push({t:`${f.material} ${f.color}`,d:`quedan ${f.resta} g`})});
@@ -246,33 +246,40 @@ function vPanel(){
 }
 
 /* ---------- Stock ---------- */
-function vStock(){
-  const t=S.tabStock;
-  const tabs=[['filamentos','Filamentos'],['insumos','Insumos y materiales'],['terminados','Productos terminados']];
-  let body='';
+function stockBody(){
+  const t=S.tabStock,sq=S.sq.trim().toLowerCase();let body='';
+  const hit=x=>!sq||x.toLowerCase().includes(sq);
+  const FF=S.filamentos.filter(f=>hit(f.marca+' '+f.material+' '+f.color)),II=S.insumos.filter(x=>hit(x.nombre+' '+x.cat));
   if(t==='filamentos'){
-    body=!S.filamentos.length?vacio('Todavía no cargaste filamentos.'):`<div class="tw"><table><thead><tr><th>Filamento</th><th>Color</th><th>Queda</th><th></th><th class="r">Costo/kg</th><th></th></tr></thead><tbody>
-    ${S.filamentos.map(f=>{const pc=Math.min(100,f.resta/f.rollo*100);return `<tr>
+    body=!FF.length?vacio(S.filamentos.length?'Ningún filamento coincide con la búsqueda.':'Todavía no cargaste filamentos.'):`<div class="tw"><table><thead><tr><th>Filamento</th><th>Color</th><th>Queda</th><th></th><th class="r">Costo/kg</th><th></th></tr></thead><tbody>
+    ${FF.map(f=>{const pc=Math.min(100,f.resta/f.rollo*100);return `<tr>
       <td>${esc(f.marca)} · ${esc(f.material)}</td><td><span class="sw" style="background:${esc(f.hex)}"></span>${esc(f.color)}</td>
       <td style="min-width:120px"><div class="bar ${pc<20?'low':''}"><i style="width:${pc}%"></i></div></td>
       <td style="white-space:nowrap"><input class="n" type="number" min="0" step="any" value="${f.resta}" onchange="setCant('filamentos',${f.id},'resta',this.value)" style="width:84px"> g ${pc<20?'<span class="tag bad">poco</span>':''}</td><td class="r">${money(f.costoKg)}</td>
       <td class="r" style="white-space:nowrap"><button class="btn ghost sm" onclick="editFil(${f.id})">Editar</button> <button class="btn ghost sm" onclick="askDel('filamentos',${f.id})" title="Eliminar">🗑</button></td></tr>`}).join('')}</tbody></table></div>`;
   }else if(t==='insumos'){
-    body=!S.insumos.length?vacio('Todavía no cargaste materiales (cajas, esencias, arcilla, cera...).'):`<div class="tw"><table><thead><tr><th>Material</th><th>Categoría</th><th>Cantidad</th><th class="r">Costo unit.</th><th></th></tr></thead><tbody>
-    ${S.insumos.map(i=>`<tr><td>${esc(i.nombre)}</td><td><span class="tag">${esc(i.cat)}</span></td>
+    body=!II.length?vacio(S.insumos.length?'Ningún material coincide con la búsqueda.':'Todavía no cargaste materiales (cajas, esencias, arcilla, cera...).'):`<div class="tw"><table><thead><tr><th>Material</th><th>Categoría</th><th>Cantidad</th><th class="r">Costo unit.</th><th></th></tr></thead><tbody>
+    ${II.map(i=>`<tr><td>${esc(i.nombre)}</td><td><span class="tag">${esc(i.cat)}</span></td>
       <td><span class="qty"><button onclick="adj('insumos',${i.id},-1)">−</button><input class="qn" type="number" min="0" step="any" value="${i.cant}" onchange="setCant('insumos',${i.id},'cant',this.value)"><span class="muted">${esc(i.un)}</span><button onclick="adj('insumos',${i.id},1)">+</button></span> ${i.cant<i.min?'<span class="tag bad">bajo</span>':''}</td>
       <td class="r">${money(i.costo)}/${esc(i.un)}</td><td class="r" style="white-space:nowrap"><span class="muted">mín. ${i.min}</span> <button class="btn ghost sm" onclick="editIns(${i.id})">Editar</button> <button class="btn ghost sm" onclick="askDel('insumos',${i.id})" title="Eliminar">🗑</button></td></tr>`).join('')}</tbody></table></div>`;
   }else{
-    const simples=activos().filter(p=>!p.esCombo),combos=activos().filter(p=>p.esCombo);
-    body=!activos().length?vacio('Primero creá tus productos en la pestaña Productos.'):`<div class="tw"><table><thead><tr><th>Producto</th><th>Línea</th><th>Unidades listas</th></tr></thead><tbody>
+    const vis=activos().filter(p=>hit(nom(p)+' '+p.linea+' '+p.tags.join(' '))),simples=vis.filter(p=>!p.esCombo),combos=vis.filter(p=>p.esCombo);
+    body=!vis.length?vacio(activos().length?'Ningún producto coincide con la búsqueda.':'Primero creá tus productos en la pestaña Productos.'):`<div class="tw"><table><thead><tr><th>Producto</th><th>Línea</th><th>Unidades listas</th></tr></thead><tbody>
     ${simples.map(p=>`<tr><td>${esc(nom(p))}</td><td><span class="tag">${p.linea}</span></td>
       <td><span class="qty"><button onclick="adj('productos',${p.id},-1,'stock')">−</button><input class="qn" type="number" min="0" step="1" value="${p.stock}" onchange="setCant('productos',${p.id},'stock',this.value)"><button onclick="adj('productos',${p.id},1,'stock')">+</button></span> ${p.stock<3?'<span class="tag warn">pocas</span>':''}</td></tr>`).join('')}</tbody></table></div>
     ${combos.length?`<h3 style="margin:18px 0 6px">Combos <span class="muted">· se calculan solos con el stock de sus productos</span></h3><div class="tw"><table><tbody>${combos.map(p=>`<tr><td>${esc(p.nombre)}</td><td class="muted">${p.comps.map(c=>c.q+'× '+esc(nom(byId(S.productos,c.p)))).join(' + ')}</td><td class="r"><b>${stockEff(p)}</b> u. posibles</td></tr>`).join('')}</tbody></table></div>`:''}`;
   }
+  return body}
+function drawStock(){$('#slist').innerHTML=stockBody()}
+function vStock(){
+  const t=S.tabStock;
+  const tabs=[['filamentos','Filamentos'],['insumos','Insumos y materiales'],['terminados','Productos terminados']];
   $('#main').innerHTML=`<div class="top"><h1>Stock</h1>
     ${t==='insumos'?'<button class="btn" onclick="newIns()">+ Material</button>':t==='filamentos'?'<button class="btn" onclick="newFil()">+ Filamento</button>':''}</div>
-    <div class="tabs">${tabs.map(([k,n])=>`<button class="${t===k?'on':''}" onclick="S.tabStock='${k}';render()">${n}</button>`).join('')}</div>
-    <div class="card">${body}</div>`;
+    <div class="tabs">${tabs.map(([k,n])=>`<button class="${t===k?'on':''}" onclick="S.tabStock='${k}';S.sq='';render()">${n}</button>`).join('')}</div>
+    <div class="card" style="margin-bottom:14px"><label>Buscar</label><input value="${esc(S.sq)}" placeholder="${t==='filamentos'?'Marca, material o color':t==='insumos'?'Nombre o categoría':'Nombre, variante o tag'}" oninput="S.sq=this.value;drawStock()"></div>
+    <div class="card" id="slist"></div>`;
+  drawStock();
 }
 /* Escribir la cantidad directamente (además de los botones + y −). */
 function setCant(col,id,key,val){
@@ -520,13 +527,14 @@ function addProd(){
 
 
 /* ---------- Combos ---------- */
-let dc={id:null,nombre:'',directo:0,comps:[],tags:[]};
+let dc={id:null,nombre:'',directo:0,comps:[],tags:[],precios:{}};
 const simplesAct=()=>activos().filter(p=>!p.esCombo);
 function newCombo(){
   if(!simplesAct().length)return toast('Primero creá productos para poder armar un combo.');
-  dc={id:null,nombre:'',directo:0,comps:[{p:simplesAct()[0].id,q:1},{p:simplesAct()[Math.min(1,simplesAct().length-1)].id,q:1}],tags:[]};comboModal()}
-function editCombo(id){const p=byId(S.productos,id);dc={id,nombre:p.nombre,directo:p.directo,comps:p.comps.map(c=>({...c})),tags:[...p.tags]};comboModal()}
+  dc={id:null,nombre:'',directo:0,comps:[{p:simplesAct()[0].id,q:1},{p:simplesAct()[Math.min(1,simplesAct().length-1)].id,q:1}],tags:[],precios:{}};comboModal()}
+function editCombo(id){const p=byId(S.productos,id);dc={id,nombre:p.nombre,directo:p.directo,comps:p.comps.map(c=>({...c})),tags:[...p.tags],precios:{...p.precios}};comboModal()}
 function comboRead(){
+  dc.precios={...dc.precios};document.querySelectorAll('.cp').forEach(i=>dc.precios[i.dataset.c]=Math.max(0,parseFloat(i.value)||0));
   dc.nombre=$('#c1').value;dc.directo=parseFloat($('#c2').value)||0;
   dc.comps=[...document.querySelectorAll('.lc')].map(r=>({p:+r.querySelector('select').value,q:Math.max(1,parseInt(r.querySelector('input').value)||1)}));
 }
@@ -545,7 +553,9 @@ function comboModal(){
   ${dc.comps.map((l,ix)=>`<div class="line lc"><select onchange="comboRead();comboModal()">${opts(l.p)}</select><input type="number" min="1" step="1" value="${l.q}" onchange="comboRead();comboModal()"><button class="rm" onclick="comboRead();dc.comps.splice(${ix},1);comboModal()">×</button></div>`).join('')}
   <button class="btn ghost sm" onclick="comboRead();dc.comps.push({p:${simplesAct()[0].id},q:1});comboModal()">+ otro producto</button></div>
   <div class="note" style="margin-top:12px">Costo del combo: <b>${money(cost)}</b> · Con el stock actual salen <b>${stock}</b> combos.<br>
-  Si lo vendieras por separado: ${S.canales.map(c=>`${esc(c.nombre)} <b>${money(sepPrecio({comps:dc.comps},c.id))}</b>`).join(' · ')}. El precio del combo lo ponés en la pestaña Precios.</div>
+  Si lo vendieras por separado: ${S.canales.map(c=>`${esc(c.nombre)} <b>${money(sepPrecio({comps:dc.comps},c.id))}</b>`).join(' · ')}. </div>
+  <div style="margin-top:12px"><label>Precio de venta del combo por canal ($) · puede ser distinto a la suma</label>
+  <div class="form">${S.canales.map(c=>`<div><label class="muted">${esc(c.nombre)}</label><input class="cp" data-c="${c.id}" type="number" min="0" value="${dc.precios[c.id]||0}"></div>`).join('')}</div></div>
   <div style="margin-top:14px"><label>Tags</label>
   <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">${dc.known.map((t,i)=>`<button type="button" class="tagc ${dc.tags.includes(t)?'on':''}" onclick="comboToggleTag(${i})">#${esc(t)}</button>`).join('')||'<span class="muted">Todavía no hay tags.</span>'}</div>
   <div style="display:flex;gap:8px"><input id="c8" placeholder="Nuevo tag" onkeydown="if(event.key==='Enter'){event.preventDefault();comboAddTag()}"><button type="button" class="btn ghost sm" onclick="comboAddTag()">Agregar</button></div></div>
@@ -561,24 +571,41 @@ function saveCombo(){
   if(!dc.comps.length)return toast('El combo necesita al menos un producto.');
   if(S.productos.some(x=>x.activo&&x.id!==dc.id&&x.nombre.trim().toLowerCase()===nombre.toLowerCase()))return toast('Ya hay un producto o combo con ese nombre.');
   const comps=Object.values(dc.comps.reduce((m,c)=>{m[c.p]=m[c.p]?{p:c.p,q:m[c.p].q+c.q}:{...c};return m},{}));
-  const tags=dc.tags.slice(),id0=dc.id;
+  const tags=dc.tags.slice(),id0=dc.id,precios={...dc.precios};
   closeModal();
   act(async()=>{
     const id=await ok(sb.rpc('guardar_combo',{p_id:id0,p_nombre:nombre,p_directo:dc.directo||0,p_comps:comps}));
     await ok(sb.from('productos').update({tags}).eq('id',id));
+    await ok(sb.from('precios').upsert(S.canales.map(c=>({producto_id:id,canal_id:c.id,precio:precios[c.id]||0})),{onConflict:'producto_id,canal_id'}));
   });
 }
 
 /* ---------- Pedidos ---------- */
-function vPedidos(){
-  $('#main').innerHTML=`<div class="top"><h1>Pedidos</h1><button class="btn" onclick="newPed()">+ Pedido</button></div>
-  <div class="card tw">${!S.pedidos.length?vacio('Todavía no hay pedidos.'):`<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Canal</th><th>Productos</th><th class="r">Total</th><th class="r">Ganancia</th><th>Estado</th><th></th></tr></thead><tbody>
-  ${[...S.pedidos].reverse().map(o=>{const g=gananciaPedido(o);const x=o.estado==='Cancelado';return `<tr style="${x?'opacity:.55':''}"><td>${o.fecha.slice(5).split('-').reverse().join('/')}</td><td>${esc(o.cliente)}</td><td>${esc(canal(o.canal)?.nombre||'—')}</td>
-    <td>${o.items.map(i=>`${i.q}× ${esc(nom(byId(S.productos,i.p)))}`).join('<br>')}${o.faltan?`<br><span class="tag warn">a producir: ${o.faltan}</span>`:''}</td>
+const pedTexto=o=>(o.cliente+' '+(canal(o.canal)?.nombre||'')+' '+o.estado+' '+o.items.map(i=>nom(byId(S.productos,i.p))).join(' ')).toLowerCase();
+const hayFiltrosPed=()=>!!(S.pq.trim()||S.pEstado!=='todos'||S.pCanal!=='todos');
+function limpiarPed(){S.pq='';S.pEstado='todos';S.pCanal='todos';render()}
+function drawPed(){
+  const q=S.pq.trim().toLowerCase();
+  const list=[...S.pedidos].reverse().filter(o=>(S.pEstado==='todos'||o.estado===S.pEstado)&&(S.pCanal==='todos'||o.canal===S.pCanal)&&(!q||pedTexto(o).includes(q)));
+  $('#plist').innerHTML=`<div class="card tw">${!S.pedidos.length?vacio('Todavía no hay pedidos.'):!list.length?vacio('Ningún pedido coincide con los filtros.'):`<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Canal</th><th>Productos</th><th class="r">Total</th><th class="r">Ganancia</th><th>Estado</th><th></th></tr></thead><tbody>
+  ${list.map(o=>{const g=gananciaPedido(o);const x=o.estado==='Cancelado';return `<tr style="${x?'opacity:.55':''}"><td>${o.fecha.slice(5).split('-').reverse().join('/')}</td><td>${esc(o.cliente)}</td><td>${esc(canal(o.canal)?.nombre||'—')}</td>
+    <td>${o.items.map(i=>`${i.q}× ${esc(nom(byId(S.productos,i.p)))}`).join('<br>')}${o.faltan?`<br><span class="tag warn">a producir: ${o.faltan}</span>`:''}${o.packaging?`<br><span class="muted">packaging ${money(o.packaging)}</span>`:''}</td>
     <td class="r" style="${x?'text-decoration:line-through':''}">${money(totalPedido(o))}</td><td class="r ${x?'':g>=0?'pos':'neg'}">${x?'—':money(g)}</td>
     <td>${x?'<span class="tag bad">Cancelado</span>':`<button class="tag ${o.estado==='Entregado'?'ok':o.estado==='Enviado'?'info':o.estado==='Preparando'?'warn':''}" style="border:0;cursor:pointer" onclick="nextEstado(${o.id})" title="Click para avanzar">${o.estado} ›</button>`}</td>
     <td class="r" style="white-space:nowrap">${x?'':`<button class="btn ghost sm" onclick="editPed(${o.id})">Editar</button> <button class="btn ghost sm" onclick="askCancel(${o.id})">Cancelar</button>`}</td></tr>`}).join('')}
   </tbody></table>`}</div>`;
+  const lc=$('#pclear');if(lc)lc.style.display=hayFiltrosPed()?'':'none';
+}
+function vPedidos(){
+  const opt=(v,t,cur)=>`<option value="${v}" ${cur===v?'selected':''}>${t}</option>`;
+  $('#main').innerHTML=`<div class="top"><h1>Pedidos</h1><button class="btn" onclick="newPed()">+ Pedido</button></div>
+  <div class="card" style="margin-bottom:14px"><div class="form" style="grid-template-columns:2fr 1fr 1fr">
+    <div><label>Buscar</label><input value="${esc(S.pq)}" placeholder="Cliente, producto o canal" oninput="S.pq=this.value;drawPed()"></div>
+    <div><label>Estado</label><select onchange="S.pEstado=this.value;render()">${opt('todos','Todos',S.pEstado)}${[...ESTADOS,'Cancelado'].map(e=>opt(e,e,S.pEstado)).join('')}</select></div>
+    <div><label>Canal</label><select onchange="S.pCanal=this.value;render()">${opt('todos','Todos',S.pCanal)}${S.canales.map(c=>opt(c.id,esc(c.nombre),S.pCanal)).join('')}</select></div></div>
+    <button id="pclear" class="btn ghost sm" style="margin-top:10px;${hayFiltrosPed()?'':'display:none'}" onclick="limpiarPed()">Limpiar filtros</button></div>
+  <div id="plist"></div>`;
+  drawPed();
 }
 function nextEstado(id){const o=byId(S.pedidos,id);if(o.estado==='Cancelado')return;const e=ESTADOS[(ESTADOS.indexOf(o.estado)+1)%ESTADOS.length];act(()=>ok(sb.from('pedidos').update({estado:e}).eq('id',id)))}
 /* Editar un pedido. Pendiente/Preparando: productos, cantidades y canal (el stock se reacomoda en la base).
@@ -586,23 +613,23 @@ function nextEstado(id){const o=byId(S.pedidos,id);if(o.estado==='Cancelado')ret
 function editPed(id){const o=byId(S.pedidos,id);
   if(o.estado==='Cancelado')return toast('Un pedido cancelado no se puede editar.');
   if(o.estado==='Enviado'||o.estado==='Entregado'){
-    openModal(`<h2>Editar pedido</h2><div class="form"><div class="full"><label>Cliente / referencia</label><input id="e1" value="${esc(o.cliente)}"></div></div>
-    <p class="muted" style="margin-top:10px">Como el pedido ya figura como ${esc(o.estado.toLowerCase())}, solo se puede cambiar el cliente. Si hubo un error en los productos, cancelalo (el stock no se devuelve) y cargá uno nuevo.</p>
+    openModal(`<h2>Editar pedido</h2><div class="form"><div class="full"><label>Cliente / referencia</label><input id="e1" value="${esc(o.cliente)}"></div><div class="full"><label>Packaging de este pedido ($)</label><input id="e2" type="number" min="0" value="${o.packaging||0}"></div></div>
+    <p class="muted" style="margin-top:10px">Como el pedido ya figura como ${esc(o.estado.toLowerCase())}, solo se puede cambiar el cliente y el packaging. Si hubo un error en los productos, cancelalo (el stock no se devuelve) y cargá uno nuevo.</p>
     <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="savePedCliente(${id})">Guardar</button></div>`);return}
-  draft=o.items.map(i=>({p:i.p,q:i.q}));pv={id,c:o.cliente,ca:o.canal};pedModal()}
-function savePedCliente(id){const c=$('#e1').value.trim()||'Sin nombre';closeModal();act(()=>ok(sb.from('pedidos').update({cliente:c}).eq('id',id)))}
+  draft=o.items.map(i=>({p:i.p,q:i.q}));pv={id,c:o.cliente,ca:o.canal,pk:o.packaging||0};pedModal()}
+function savePedCliente(id){const c=$('#e1').value.trim()||'Sin nombre',pk=Math.max(0,parseFloat($('#e2').value)||0);closeModal();act(()=>ok(sb.from('pedidos').update({cliente:c,packaging:pk}).eq('id',id)))}
 function askCancel(id){const o=byId(S.pedidos,id);const vuelve=o.estado==='Pendiente'||o.estado==='Preparando';
   openModal(`<h2>¿Cancelar el pedido de «${esc(o.cliente)}»?</h2>
   <p class="muted">${vuelve?'Las unidades que se habían descontado del stock vuelven a stock.':'Como ya figura como '+esc(o.estado.toLowerCase())+', el stock <b>no</b> se devuelve: si el producto volvió, sumalo a mano en Stock.'}
   El pedido queda en la lista como cancelado y deja de contar en ventas y ganancia. No se puede deshacer.</p>
   <div class="acts"><button class="btn ghost" onclick="closeModal()">Volver</button><button class="btn" style="background:#b84a47" onclick="doCancel(${id})">Sí, cancelar pedido</button></div>`)}
 function doCancel(id){closeModal();act(()=>ok(sb.rpc('cancelar_pedido',{p_id:id})))}
-let draft=[];let pv={c:'',ca:''};
+let draft=[];let pv={c:'',ca:'',pk:0};
 function newPed(){
   if(!activos().length)return toast('Primero creá al menos un producto.');
   if(!S.canales.length)return toast('No hay canales de venta cargados.');
-  draft=[{p:activos()[0].id,q:1}];pv={id:null,c:'',ca:S.canales[S.canales.length-1].id};pedModal()}
-function pedRead(){pv={...pv,c:$('#pc').value,ca:$('#pca').value}}
+  draft=[{p:activos()[0].id,q:1}];pv={id:null,c:'',ca:S.canales[S.canales.length-1].id,pk:S.config.packaging||0};pedModal()}
+function pedRead(){pv={...pv,c:$('#pc').value,ca:$('#pca').value,pk:Math.max(0,parseFloat($('#ppk').value)||0)}}
 const origPed=()=>pv.id?byId(S.pedidos,pv.id):null;
 /* Al editar, las unidades que este pedido ya tenía descontadas cuentan como disponibles. */
 const deOrig=id=>(origPed()?.items.find(i=>i.p===id)?.de)||0;
@@ -623,22 +650,27 @@ function pedModal(){
   const total=draft.reduce((a,l)=>a+l.q*precioDraft(l),0);
   openModal(`<h2>${pv.id?'Editar pedido':'Nuevo pedido'}</h2>${pv.id?'<p class="muted" style="margin:-6px 0 12px">Al guardar, el stock se reacomoda. Los productos que ya estaban conservan su precio; si cambiás el canal, se recalcula todo con los precios actuales.</p>':''}<div class="form">
     <div><label>Cliente / referencia</label><input id="pc" value="${esc(pv.c)}"></div>
-    <div><label>Canal de venta</label><select id="pca" onchange="pedRead();pedModal()">${S.canales.map(c=>`<option value="${c.id}" ${c.id===pv.ca?'selected':''}>${esc(c.nombre)}</option>`).join('')}</select></div></div>
+    <div><label>Canal de venta</label><select id="pca" onchange="pedRead();pedModal()">${S.canales.map(c=>`<option value="${c.id}" ${c.id===pv.ca?'selected':''}>${esc(c.nombre)}</option>`).join('')}</select></div>
+    <div><label>Packaging de este pedido ($)</label><input id="ppk" type="number" min="0" value="${pv.pk||0}" onchange="pedRead();pedModal()"></div></div>
     <div style="margin-top:14px"><label>Productos</label>
     ${draft.map((l,ix)=>`<div class="line"><select onchange="pedRead();draft[${ix}].p=+this.value;pedModal()">${opcionesProd().map(p=>`<option value="${p.id}" ${p.id===l.p?'selected':''}>${esc(nom(p))}${p.activo?'':' (archivado)'} (${disp(p)} ${p.esCombo?'posibles':'listos'})</option>`).join('')}</select>
       <input type="number" min="1" value="${l.q}" onchange="pedRead();draft[${ix}].q=Math.max(1,parseInt(this.value)||1);pedModal()"><button class="rm" onclick="pedRead();draft.splice(${ix},1);if(!draft.length)draft.push({p:activos()[0].id,q:1});pedModal()">×</button></div>`).join('')}
     <button class="btn ghost sm" onclick="pedRead();draft.push({p:activos()[0].id,q:1});pedModal()">+ otro producto</button></div>
     ${aviso}
-    <div style="margin-top:12px"><b>Total: ${money(total)}</b></div>
+    <div style="margin-top:12px"><b>Total: ${money(total)}</b>${pv.pk?` <span class="muted">· packaging ${money(pv.pk)} (costo, no se suma al total)</span>`:''}</div>
     <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="savePed()">${pv.id?'Guardar cambios':'Guardar pedido'}</button></div>`);
 }
 function savePed(){
   pedRead();
   const merged=Object.values(draft.reduce((m,l)=>{m[l.p]=m[l.p]?{p:l.p,q:m[l.p].q+l.q}:{...l};return m},{}));
   closeModal();S.view='pedidos';
-  act(()=>ok(pv.id
-    ?sb.rpc('editar_pedido',{p_id:pv.id,p_cliente:pv.c,p_canal:pv.ca,p_items:merged})
-    :sb.rpc('crear_pedido',{p_cliente:pv.c,p_canal:pv.ca,p_items:merged})));
+  const pk=pv.pk||0,id0=pv.id;
+  act(async()=>{
+    let id=id0;
+    if(id0)await ok(sb.rpc('editar_pedido',{p_id:id0,p_cliente:pv.c,p_canal:pv.ca,p_items:merged}));
+    else id=await ok(sb.rpc('crear_pedido',{p_cliente:pv.c,p_canal:pv.ca,p_items:merged}));
+    await ok(sb.from('pedidos').update({packaging:pk}).eq('id',id));
+  });
 }
 
 /* ---------- Precios y canales ---------- */
@@ -655,12 +687,19 @@ function vPrecios(){
       </tbody></table></div>
     <div class="card"><h3 style="margin-bottom:10px">Parámetros</h3><div class="form">
       <div><label>Costo por hora de impresión ($)</label><input type="number" value="${S.config.costoHora}" onchange="setConf('costo_hora',this.value)"></div>
-      <div><label>Margen objetivo (%)</label><input type="number" value="${S.config.margenObjetivo}" onchange="setConf('margen_objetivo',this.value)"></div></div></div>
+      <div><label>Margen objetivo (%)</label><input type="number" value="${S.config.margenObjetivo}" onchange="setConf('margen_objetivo',this.value)"></div>
+      <div class="full"><label>Packaging por pedido ($) · valor inicial de cada pedido nuevo, se puede cambiar en cada uno</label><input type="number" min="0" value="${S.config.packaging||0}" onchange="setConf('packaging',this.value)"></div></div></div>
   </div>
-  ${!activos().length?'<div class="card">'+vacio('Creá productos para poder ponerles precio.')+'</div>':''}
-  ${activos().length?S.canales.map(c=>`<div class="card tw" style="margin-bottom:14px"><h3 style="margin-bottom:8px">${esc(c.nombre)}</h3>
+  ${activos().length?`<div class="card" style="margin-bottom:14px"><label>Buscar producto</label><input value="${esc(S.prq)}" placeholder="Nombre, variante o línea" oninput="S.prq=this.value;drawPrecios()"></div>`:''}
+  <div id="prlist"></div>`;
+  drawPrecios();
+}
+function drawPrecios(){
+  const q=S.prq.trim().toLowerCase();const lista=activos().filter(p=>!q||(nom(p)+' '+p.linea+' '+p.tags.join(' ')).toLowerCase().includes(q));
+  $('#prlist').innerHTML=`${!activos().length?'<div class="card">'+vacio('Creá productos para poder ponerles precio.')+'</div>':!lista.length?'<div class="card">'+vacio('Ningún producto coincide con la búsqueda.')+'</div>':''}
+  ${lista.length?S.canales.map(c=>`<div class="card tw" style="margin-bottom:14px"><h3 style="margin-bottom:8px">${esc(c.nombre)}</h3>
     <table><thead><tr><th>Producto</th><th class="r">Costo</th><th class="r">Precio de venta</th><th class="r">Te queda</th><th class="r">Margen</th><th class="r">Sugerido</th></tr></thead><tbody>
-    ${activos().map(p=>{const pr=p.precios[c.id]||0;const co=costo(p);const n=neto(c,pr)-co;const m=pr?n/pr*100:0;const sg=Math.round(sugerido(p,c)/100)*100;
+    ${lista.map(p=>{const pr=p.precios[c.id]||0;const co=costo(p);const n=neto(c,pr)-co;const m=pr?n/pr*100:0;const sg=Math.round(sugerido(p,c)/100)*100;
       return `<tr><td>${esc(nom(p))}${p.esCombo?`<div class="muted">por separado: ${money(sepPrecio(p,c.id))}${pr&&sepPrecio(p,c.id)?` · descuento ${Math.round((1-pr/sepPrecio(p,c.id))*100)}%`:''}</div>`:''}</td><td class="r">${money(co)}</td>
       <td class="r"><input class="n" type="number" value="${pr}" onchange="setPrecio(${p.id},'${c.id}',this.value)"></td>
       <td class="r ${n>=0?'pos':'neg'}">${pr?money(n):'—'}</td>
