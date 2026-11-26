@@ -442,9 +442,15 @@ function prodModal(){
 function addProd(){
   readProd();const v=dp.v;const nombre=v.nombre.trim(),variante=(v.variante||'').trim();
   if(!nombre)return toast('Poné el nombre del producto.');
-  const hermanos=S.productos.filter(x=>x.activo&&x.id!==dp.id&&x.nombre.trim().toLowerCase()===nombre.toLowerCase());
-  if(hermanos.length&&!variante)return toast('Ya hay un producto con ese nombre: indicá la variante (color, tamaño...).');
-  if(hermanos.some(x=>(x.variante||'').trim().toLowerCase()===variante.toLowerCase()))return toast('Ya existe esa variante de «'+nombre+'».');
+  /* Solo se controla nombre + variante al crear, o si se cambiaron: así se pueden editar tags, receta, etc.
+     de productos que ya existían sin variante. */
+  const orig=dp.id?byId(S.productos,dp.id):null;
+  const cambioId=!orig||orig.nombre.trim().toLowerCase()!==nombre.toLowerCase()||(orig.variante||'').trim().toLowerCase()!==variante.toLowerCase();
+  if(cambioId){
+    const hermanos=S.productos.filter(x=>x.activo&&x.id!==dp.id&&x.nombre.trim().toLowerCase()===nombre.toLowerCase());
+    if(hermanos.length&&!variante)return toast('Ya hay un producto con ese nombre: indicá la variante (color, tamaño...).');
+    if(hermanos.some(x=>(x.variante||'').trim().toLowerCase()===variante.toLowerCase()))return toast('Ya existe esa variante de «'+nombre+'».');
+  }
   const fil=dp.fil.filter(x=>x.g>0).map(x=>({id:x.id,g:x.g})),ins=dp.ins.filter(x=>x.q>0).map(x=>({id:x.id,q:x.q}));
   const args={p_id:dp.id,p_nombre:nombre,p_variante:variante,p_linea:v.linea,p_horas:parseFloat(v.horas)||0,p_directo:parseFloat(v.directo)||0,
     p_stock:Math.max(0,parseInt(v.stock)||0),p_fil:fil,p_ins:ins};
