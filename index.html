@@ -127,6 +127,7 @@ label{font-size:12px;color:var(--gray);display:block;margin-bottom:3px}
 <div class="modal" id="modal"><div class="box" id="box"></div></div>
 <div id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 /* ---------- Conexión a Supabase ----------
    La "publishable key" es pública por diseño: lo que protege los datos son las reglas
@@ -229,7 +230,7 @@ function vPanel(){
   const al=alertas();
   const rank=activos().map(p=>{const c=canal('tn')||S.canales[0];return {p,m:c?neto(c,p.precios[c.id]||0)-costo(p):0}}).sort((a,b)=>b.m-a.m).slice(0,6);
   $('#main').innerHTML=`
-  <div class="top"><div><h1>Hola 👋</h1><div class="muted">Resumen de Esencia Hogar PIA</div></div></div>
+  <div class="top"><div><h1>Hola 👋</h1><div class="muted">Resumen de Esencia Hogar PIA</div></div><button class="btn ghost" onclick="exportarExcel()">Exportar a Excel</button></div>
   ${!S.filamentos.length&&!S.productos.length?'<div class="note">Todavía no hay datos. Empezá por <b>Stock</b>: cargá tus filamentos e insumos. Después creá tus <b>Productos</b> con su receta y los precios.</div>':''}
   <div class="grid kpis">
     <div class="card kpi"><div class="l">Ventas totales</div><div class="v">${money(ventas)}</div><div class="s">${vivos.length} pedidos${S.pedidos.length>vivos.length?` (${S.pedidos.length-vivos.length} cancelados no cuentan)`:''}</div></div>
@@ -713,6 +714,34 @@ function drawPrecios(){
       <td class="r"><span class="tag ${m>=S.config.margenObjetivo?'ok':m>=20?'warn':'bad'}">${pr?m.toFixed(0)+'%':'—'}</span></td>
       <td class="r"><button class="btn ghost sm" onclick="setPrecio(${p.id},'${c.id}',${sg})">${money(sg)}</button></td></tr>`}).join('')}
     </tbody></table></div>`).join(''):''}`;
+}
+
+/* ---------- Exportar a Excel ----------
+   Baja un .xlsx con una hoja por tema, con los datos tal como están ahora en pantalla (respaldo). */
+function exportarExcel(){
+  if(typeof XLSX==='undefined')return toast('No se pudo cargar el exportador de Excel. Revisá la conexión y recargá la página.');
+  const wb=XLSX.utils.book_new();
+  const add=(nombre,rows)=>{if(rows.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),nombre)};
+  add('Productos',S.productos.slice().sort((a,b)=>nom(a).localeCompare(nom(b),'es')).map(p=>{
+    const f={Producto:p.nombre,Variante:p.variante,Línea:p.linea,Tipo:p.esCombo?'Combo':'Producto',Estado:p.activo?'Activo':'Archivado',
+      'Unidades listas':stockEff(p),Costo:Math.round(costo(p)),Tags:p.tags.join(', ')};
+    if(p.esCombo)f.Componentes=p.comps.map(c=>c.q+'× '+nom(byId(S.productos,c.p))).join(' + ');
+    S.canales.forEach(c=>{const pr=p.precios[c.id]||0;f['Precio '+c.nombre]=pr;f['Margen % '+c.nombre]=pr?Math.round((neto(c,pr)-costo(p))/pr*100):''});
+    return f}));
+  add('Pedidos',S.pedidos.map(o=>({Número:o.id,Fecha:o.fecha,Cliente:o.cliente,Canal:canal(o.canal)?.nombre||'',Estado:o.estado,
+    'A producir':o.faltan||0,Total:Math.round(totalPedido(o)),Packaging:o.packaging||0,'Ganancia':o.estado==='Cancelado'?0:Math.round(gananciaPedido(o))})));
+  add('Detalle de pedidos',S.pedidos.flatMap(o=>o.items.map(i=>({Pedido:o.id,Fecha:o.fecha,Cliente:o.cliente,Canal:canal(o.canal)?.nombre||'',Estado:o.estado,
+    Producto:nom(byId(S.productos,i.p)),Cantidad:i.q,'Precio unitario':Math.round(precioItem(o,i)),'Costo unitario':Math.round(costoItem(i)),
+    Subtotal:Math.round(i.q*precioItem(o,i))}))));
+  add('Filamentos',S.filamentos.map(f=>({Marca:f.marca,Material:f.material,Color:f.color,'Queda (g)':f.resta,'Rollo (g)':f.rollo,'Costo por kg':f.costoKg})));
+  add('Insumos',S.insumos.map(i=>({Material:i.nombre,Categoría:i.cat,Unidad:i.un,Cantidad:i.cant,Mínimo:i.min,'Costo unitario':i.costo})));
+  add('Canales y parámetros',[...S.canales.map(c=>({Concepto:'Canal: '+c.nombre,'Comisión %':c.com,'Cargo fijo $':c.fijo})),
+    {Concepto:'Costo por hora de impresión','Comisión %':'','Cargo fijo $':S.config.costoHora},
+    {Concepto:'Margen objetivo %','Comisión %':'','Cargo fijo $':S.config.margenObjetivo},
+    {Concepto:'Packaging por pedido (inicial)','Comisión %':'','Cargo fijo $':S.config.packaging}]);
+  if(!wb.SheetNames.length)return toast('No hay datos para exportar todavía.');
+  XLSX.writeFile(wb,'PIA-respaldo-'+new Date().toISOString().slice(0,10)+'.xlsx');
+  toast('Listo: se descargó el archivo de Excel.');
 }
 
 /* ---------- Ingreso ---------- */
