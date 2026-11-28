@@ -125,6 +125,9 @@ label{font-size:12px;color:var(--gray);display:block;margin-bottom:3px}
 .pki:hover,.pki.hl{background:var(--primary-soft)}
 .pki.on{font-weight:600;color:var(--primary)}
 .pkn{padding:8px;color:var(--gray);font-size:13px}
+.kb{text-align:left;font-family:inherit;color:inherit;cursor:pointer;width:100%}
+.kb:hover{border-color:var(--primary)}
+.kb.on{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-soft)}
 </style>
 </head>
 <body>
@@ -164,7 +167,7 @@ const SUPABASE_KEY='sb_publishable_vzXjLm2Y152Gk2F1rjMD-Q_AJVKVd_m';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
 const S={config:{costoHora:350,margenObjetivo:40,packaging:0},canales:[],filamentos:[],insumos:[],productos:[],pedidos:[],
-  tabStock:'filamentos',tabProd:'todas',view:'panel',email:'',q:'',tagsSel:[],stockF:'todos',group:'ninguno',aq:'',aLinea:'todas',aStock:'todos',aTags:[],sq:'',pq:'',pEstado:'todos',pCanal:'todos',prq:''};
+  tabStock:'filamentos',tabProd:'todas',view:'panel',email:'',q:'',tagsSel:[],stockF:'todos',group:'ninguno',aq:'',aLinea:'todas',aStock:'todos',aTags:[],sq:'',pq:'',pEstado:'todos',pCanal:'todos',pAt:'todos',prq:''};
 const STOCK_INICIAL=10; // unidades listas con las que arranca todo producto o variante nuevo
 const ESTADOS=['Pendiente','Preparando','Enviado','Entregado'];
 const $=s=>document.querySelector(s);
@@ -655,13 +658,30 @@ function saveCombo(){
 
 /* ---------- Pedidos ---------- */
 const pedTexto=o=>(o.cliente+' '+(canal(o.canal)?.nombre||'')+' '+o.estado+' '+o.items.map(i=>nom(byId(S.productos,i.p))).join(' ')).toLowerCase();
-const hayFiltrosPed=()=>!!(S.pq.trim()||S.pEstado!=='todos'||S.pCanal!=='todos');
-function limpiarPed(){S.pq='';S.pEstado='todos';S.pCanal='todos';render()}
+const hayFiltrosPed=()=>!!(S.pq.trim()||S.pEstado!=='todos'||S.pCanal!=='todos'||S.pAt!=='todos');
+function limpiarPed(){S.pq='';S.pEstado='todos';S.pCanal='todos';S.pAt='todos';render()}
+/* Atraso: no hay fecha de entrega prometida, así que se cuenta cuántos días lleva un pedido sin entregar desde que se cargó.
+   Cambiando estos dos números cambia dónde empieza "atrasado" y "muy atrasado". */
+const ATRASO={leve:3,grave:7};
+const enCurso=o=>o.estado!=='Entregado'&&o.estado!=='Cancelado';
+function diasPed(o){const [y,m,d]=o.fecha.slice(0,10).split('-').map(Number),h=new Date();
+  return Math.max(0,Math.round((new Date(h.getFullYear(),h.getMonth(),h.getDate())-new Date(y,m-1,d))/86400000))}
+const nivelPed=o=>{const d=diasPed(o);return d>=ATRASO.grave?'muy':d>=ATRASO.leve?'atraso':'dia'};
+const atrasoOk=o=>S.pAt==='todos'||(enCurso(o)&&(S.pAt==='curso'||nivelPed(o)===S.pAt));
+function setAtraso(k){S.pAt=S.pAt===k?'todos':k;render()}
+function tarjetasAtraso(){
+  const cur=S.pedidos.filter(enCurso),g=k=>cur.filter(o=>nivelPed(o)===k);
+  const T=[['curso','En curso','sin entregar',cur,''],['dia','Al día',`menos de ${ATRASO.leve} días`,g('dia'),''],
+    ['atraso','Atrasados',`${ATRASO.leve} a ${ATRASO.grave-1} días`,g('atraso'),'#a8661a'],['muy','Muy atrasados',`${ATRASO.grave} días o más`,g('muy'),'#b84a47']];
+  return `<div class="grid kpis">${T.map(([k,t,sub,arr,col])=>`<button type="button" class="card kpi kb ${S.pAt===k?'on':''}" onclick="setAtraso('${k}')" title="Click para ver solo estos pedidos">
+    <div class="l">${t}</div><div class="v" style="${col&&arr.length?'color:'+col:''}">${arr.length} <span style="font-size:15px;font-weight:400">pedido${arr.length===1?'':'s'}</span></div>
+    <div class="s"><b>${money(arr.reduce((a,o)=>a+totalPedido(o),0))}</b> · ${sub}</div></button>`).join('')}</div>`;
+}
 function drawPed(){
   const q=S.pq.trim().toLowerCase();
-  const list=[...S.pedidos].reverse().filter(o=>(S.pEstado==='todos'||o.estado===S.pEstado)&&(S.pCanal==='todos'||o.canal===S.pCanal)&&(!q||pedTexto(o).includes(q)));
+  const list=[...S.pedidos].reverse().filter(o=>(S.pEstado==='todos'||o.estado===S.pEstado)&&(S.pCanal==='todos'||o.canal===S.pCanal)&&atrasoOk(o)&&(!q||pedTexto(o).includes(q)));
   $('#plist').innerHTML=`<div class="card tw">${!S.pedidos.length?vacio('Todavía no hay pedidos.'):!list.length?vacio('Ningún pedido coincide con los filtros.'):`<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Canal</th><th>Productos</th><th class="r">Total</th><th class="r">Ganancia</th><th>Estado</th><th></th></tr></thead><tbody>
-  ${list.map(o=>{const g=gananciaPedido(o);const x=o.estado==='Cancelado';return `<tr style="${x?'opacity:.55':''}"><td>${o.fecha.slice(5).split('-').reverse().join('/')}</td><td>${esc(o.cliente)}</td><td>${esc(canal(o.canal)?.nombre||'—')}</td>
+  ${list.map(o=>{const g=gananciaPedido(o);const x=o.estado==='Cancelado';return `<tr style="${x?'opacity:.55':''}"><td>${o.fecha.slice(5).split('-').reverse().join('/')}${enCurso(o)&&nivelPed(o)!=='dia'?`<br><span class="tag ${nivelPed(o)==='muy'?'bad':'warn'}">hace ${diasPed(o)} días</span>`:''}</td><td>${esc(o.cliente)}</td><td>${esc(canal(o.canal)?.nombre||'—')}</td>
     <td>${o.items.map(i=>`${i.q}× ${esc(nom(byId(S.productos,i.p)))}`).join('<br>')}${o.faltan?`<br><span class="tag warn">a producir: ${o.faltan}</span>`:''}${o.packaging?`<br><span class="muted">packaging ${money(o.packaging)}</span>`:''}</td>
     <td class="r" style="${x?'text-decoration:line-through':''}">${money(totalPedido(o))}${!x&&o.items.some(i=>!precioItem(o,i))?'<br><span class="tag warn">sin precio</span>':''}</td><td class="r ${x?'':g>=0?'pos':'neg'}">${x?'—':money(g)}</td>
     <td>${x?'<span class="tag bad">Cancelado</span>':`<button class="tag ${o.estado==='Entregado'?'ok':o.estado==='Enviado'?'info':o.estado==='Preparando'?'warn':''}" style="border:0;cursor:pointer" onclick="nextEstado(${o.id})" title="Click para avanzar">${o.estado} ›</button>`}</td>
@@ -672,6 +692,7 @@ function drawPed(){
 function vPedidos(){
   const opt=(v,t,cur)=>`<option value="${v}" ${cur===v?'selected':''}>${t}</option>`;
   $('#main').innerHTML=`<div class="top"><h1>Pedidos</h1><button class="btn" onclick="newPed()">+ Pedido</button></div>
+  ${tarjetasAtraso()}
   <div class="card" style="margin-bottom:14px"><div class="form" style="grid-template-columns:2fr 1fr 1fr">
     <div><label>Buscar</label><input value="${esc(S.pq)}" placeholder="Cliente, producto o canal" oninput="S.pq=this.value;drawPed()"></div>
     <div><label>Estado</label><select onchange="S.pEstado=this.value;render()">${opt('todos','Todos',S.pEstado)}${[...ESTADOS,'Cancelado'].map(e=>opt(e,e,S.pEstado)).join('')}</select></div>
