@@ -267,7 +267,7 @@ function stockBody(){
     body=!vis.length?vacio(activos().length?'Ningún producto coincide con la búsqueda.':'Primero creá tus productos en la pestaña Productos.'):`<div class="tw"><table><thead><tr><th>Producto</th><th>Línea</th><th>Unidades listas</th></tr></thead><tbody>
     ${simples.map(p=>`<tr><td>${esc(nom(p))}</td><td><span class="tag">${p.linea}</span></td>
       <td><span class="qty"><button onclick="adj('productos',${p.id},-1,'stock')">−</button><input class="qn" type="number" min="0" step="1" value="${p.stock}" onchange="setCant('productos',${p.id},'stock',this.value)"><button onclick="adj('productos',${p.id},1,'stock')">+</button></span> ${p.stock<3?'<span class="tag warn">pocas</span>':''}</td></tr>`).join('')}</tbody></table></div>
-    ${combos.length?`<h3 style="margin:18px 0 6px">Combos <span class="muted">· se calculan solos con el stock de sus productos</span></h3><div class="tw"><table><tbody>${combos.map(p=>`<tr><td>${esc(p.nombre)}</td><td class="muted">${p.comps.map(c=>c.q+'× '+esc(nom(byId(S.productos,c.p)))).join(' + ')}</td><td class="r"><b>${stockEff(p)}</b> u. posibles</td></tr>`).join('')}</tbody></table></div>`:''}`;
+    ${combos.length?`<h3 style="margin:18px 0 6px">Combos <span class="muted">· se calculan solos con el stock de sus productos</span></h3><div class="tw"><table><tbody>${combos.map(p=>`<tr><td>${esc(nom(p))}</td><td class="muted">${p.comps.map(c=>c.q+'× '+esc(nom(byId(S.productos,c.p)))).join(' + ')}</td><td class="r"><b>${stockEff(p)}</b> u. posibles</td></tr>`).join('')}</tbody></table></div>`:''}`;
   }
   return body}
 function drawStock(){$('#slist').innerHTML=stockBody()}
@@ -366,14 +366,14 @@ function famCard(nombre,vs){
   return `<div class="card"><div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:6px"><h3>${esc(nombre)}</h3><span class="tag">${vs[0].linea}</span></div>
     ${tags.length?`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px">${tags.map(t=>`<button class="tagc" onclick="filtroTag('${esc(t)}')">#${esc(t)}</button>`).join('')}</div>`:''}
     ${vs.map(p=>{
-      if(p.esCombo)return `<div class="alert" style="align-items:center;gap:10px"><div style="flex:1;min-width:0"><b>Combo</b><div class="muted">${p.comps.map(c=>c.q+'× '+esc(nom(byId(S.productos,c.p)))).join(' + ')}${p.directo?' · extra '+money(p.directo):''}</div></div>
+      if(p.esCombo)return `<div class="alert" style="align-items:center;gap:10px"><div style="flex:1;min-width:0"><b>${esc(p.variante||'Combo')}</b><div class="muted">${p.comps.map(c=>c.q+'× '+esc(nom(byId(S.productos,c.p)))).join(' + ')}${p.directo?' · extra '+money(p.directo):''}</div></div>
       <div class="r" style="white-space:nowrap"><div class="muted">${stockEff(p)} u. posibles</div><b>${money(costo(p))}</b></div>
       <button class="btn ghost sm" onclick="editCombo(${p.id})">Editar</button></div>`;
       const det=[...p.fil.map(x=>`${x.g} g ${esc(byId(S.filamentos,x.id)?.color||'?')}`),p.horas?`${p.horas} h`:null,...p.ins.map(x=>{const i=byId(S.insumos,x.id);return `${x.q} ${esc(i?.un||'')} ${esc((i?.nombre||'?').toLowerCase())}`}),p.directo?`directo ${money(p.directo)}`:null].filter(Boolean);
       return `<div class="alert" style="align-items:center;gap:10px"><div style="flex:1;min-width:0"><b>${esc(p.variante||'Única')}</b><div class="muted">${det.join(' · ')||'sin receta'}</div></div>
       <div class="r" style="white-space:nowrap"><div class="muted">${p.stock} u. listas</div><b>${money(costo(p))}</b></div>
       <button class="btn ghost sm" onclick="editProd(${p.id})">Editar</button></div>`}).join('')}
-    ${vs[0].esCombo?'':`<div style="margin-top:10px"><button class="btn ghost sm" onclick="newVariante(${vs[0].id})">+ variante</button></div>`}</div>`;
+    <div style="margin-top:10px"><button class="btn ghost sm" onclick="${vs[0].esCombo?'newVarianteCombo':'newVariante'}(${vs[0].id})">+ variante</button></div></div>`;
 }
 function drawProds(){
   const list=filtrar();
@@ -527,15 +527,17 @@ function addProd(){
 
 
 /* ---------- Combos ---------- */
-let dc={id:null,nombre:'',directo:0,comps:[],tags:[],precios:{}};
+let dc={id:null,nombre:'',variante:'',directo:0,comps:[],tags:[],precios:{}};
 const simplesAct=()=>activos().filter(p=>!p.esCombo);
 function newCombo(){
   if(!simplesAct().length)return toast('Primero creá productos para poder armar un combo.');
-  dc={id:null,nombre:'',directo:0,comps:[{p:simplesAct()[0].id,q:1},{p:simplesAct()[Math.min(1,simplesAct().length-1)].id,q:1}],tags:[],precios:{}};comboModal()}
-function editCombo(id){const p=byId(S.productos,id);dc={id,nombre:p.nombre,directo:p.directo,comps:p.comps.map(c=>({...c})),tags:[...p.tags],precios:{...p.precios}};comboModal()}
+  dc={id:null,nombre:'',variante:'',directo:0,comps:[{p:simplesAct()[0].id,q:1},{p:simplesAct()[Math.min(1,simplesAct().length-1)].id,q:1}],tags:[],precios:{}};comboModal()}
+function editCombo(id){const p=byId(S.productos,id);dc={id,nombre:p.nombre,variante:p.variante,directo:p.directo,comps:p.comps.map(c=>({...c})),tags:[...p.tags],precios:{...p.precios}};comboModal()}
+/* Nueva variante de un combo: arranca con los productos, el extra, los tags y los precios del combo de origen. */
+function newVarianteCombo(id){const p=byId(S.productos,id);dc={id:null,nombre:p.nombre,variante:'',directo:p.directo,comps:p.comps.map(c=>({...c})),tags:[...p.tags],precios:{...p.precios},nueva:true};comboModal()}
 function comboRead(){
   dc.precios={...dc.precios};document.querySelectorAll('.cp').forEach(i=>dc.precios[i.dataset.c]=Math.max(0,parseFloat(i.value)||0));
-  dc.nombre=$('#c1').value;dc.directo=parseFloat($('#c2').value)||0;
+  dc.nombre=$('#c1').value;dc.variante=$('#c3').value;dc.directo=parseFloat($('#c2').value)||0;
   dc.comps=[...document.querySelectorAll('.lc')].map(r=>({p:+r.querySelector('select').value,q:Math.max(1,parseInt(r.querySelector('input').value)||1)}));
 }
 function comboToggleTag(i){comboRead();const t=dc.known[i];dc.tags=dc.tags.includes(t)?dc.tags.filter(x=>x!==t):[...dc.tags,t];comboModal()}
@@ -546,8 +548,9 @@ function comboModal(){
     return [...simplesAct(),...extra].map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(nom(p))}${p.activo?'':' (archivado)'}</option>`).join('')};
   const cost=costo({esCombo:true,comps:dc.comps,directo:dc.directo});
   const stock=stockEff({esCombo:true,comps:dc.comps});
-  openModal(`<h2>${dc.id?'Editar combo':'Nuevo combo'}</h2><div class="form">
+  openModal(`<h2>${dc.id?'Editar combo':dc.nueva?'Nueva variante de combo':'Nuevo combo'}</h2><div class="form">
     <div class="full"><label>Nombre del combo</label><input id="c1" value="${esc(dc.nombre)}" placeholder="Ej: Pack Navidad"></div>
+    <div class="full"><label>Variante (color, tamaño...) · dejalo vacío si no tiene variantes</label><input id="c3" value="${esc(dc.variante||'')}" placeholder="Ej: Rosa / Grande"></div>
     <div class="full"><label>Costo extra ($) · caja, packaging, etc. (opcional)</label><input id="c2" type="number" min="0" value="${dc.directo||0}" onchange="comboRead();comboModal()"></div></div>
   <div style="margin-top:14px"><label>Productos del combo (cantidad por combo)</label>
   ${dc.comps.map((l,ix)=>`<div class="line lc"><select onchange="comboRead();comboModal()">${opts(l.p)}</select><input type="number" min="1" step="1" value="${l.q}" onchange="comboRead();comboModal()"><button class="rm" onclick="comboRead();dc.comps.splice(${ix},1);comboModal()">×</button></div>`).join('')}
@@ -566,16 +569,20 @@ function askArchiveCombo(){
   openModal(`<h2>¿Archivar el combo «${esc(dc.nombre)}»?</h2><p class="muted">Deja de aparecer en pedidos nuevos y precios. Los pedidos ya hechos se conservan. Se puede restaurar desde Archivados.</p>
   <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" style="background:#b84a47" onclick="doArchive(${dc.id})">Sí, archivar</button></div>`)}
 function saveCombo(){
-  comboRead();const nombre=dc.nombre.trim();
+  comboRead();const nombre=dc.nombre.trim(),variante=(dc.variante||'').trim();
   if(!nombre)return toast('Poné el nombre del combo.');
   if(!dc.comps.length)return toast('El combo necesita al menos un producto.');
-  if(S.productos.some(x=>x.activo&&x.id!==dc.id&&x.nombre.trim().toLowerCase()===nombre.toLowerCase()))return toast('Ya hay un producto o combo con ese nombre.');
+  const mismo=x=>x.nombre.trim().toLowerCase()===nombre.toLowerCase();
+  if(S.productos.some(x=>x.activo&&!x.esCombo&&mismo(x)))return toast('Ya hay un producto con ese nombre.');
+  const hermanos=S.productos.filter(x=>x.activo&&x.esCombo&&x.id!==dc.id&&mismo(x));
+  if(hermanos.length&&!variante)return toast('Ya hay un combo con ese nombre: indicá la variante (color, tamaño...).');
+  if(hermanos.some(x=>(x.variante||'').trim().toLowerCase()===variante.toLowerCase()))return toast('Ya existe esa variante de «'+nombre+'».');
   const comps=Object.values(dc.comps.reduce((m,c)=>{m[c.p]=m[c.p]?{p:c.p,q:m[c.p].q+c.q}:{...c};return m},{}));
   const tags=dc.tags.slice(),id0=dc.id,precios={...dc.precios};
   closeModal();
   act(async()=>{
-    const id=await ok(sb.rpc('guardar_combo',{p_id:id0,p_nombre:nombre,p_directo:dc.directo||0,p_comps:comps}));
-    await ok(sb.from('productos').update({tags}).eq('id',id));
+    const id=await ok(sb.rpc('guardar_combo',{p_id:id0,p_nombre:nombre,p_directo:dc.directo||0,p_comps:comps,p_variante:variante}));
+    await ok(sb.from('productos').update({tags}).eq('nombre',nombre).eq('es_combo',true));   // los tags valen para toda la familia
     await ok(sb.from('precios').upsert(S.canales.map(c=>({producto_id:id,canal_id:c.id,precio:precios[c.id]||0})),{onConflict:'producto_id,canal_id'}));
   });
 }
