@@ -598,7 +598,7 @@ function drawPed(){
   $('#plist').innerHTML=`<div class="card tw">${!S.pedidos.length?vacio('Todavía no hay pedidos.'):!list.length?vacio('Ningún pedido coincide con los filtros.'):`<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Canal</th><th>Productos</th><th class="r">Total</th><th class="r">Ganancia</th><th>Estado</th><th></th></tr></thead><tbody>
   ${list.map(o=>{const g=gananciaPedido(o);const x=o.estado==='Cancelado';return `<tr style="${x?'opacity:.55':''}"><td>${o.fecha.slice(5).split('-').reverse().join('/')}</td><td>${esc(o.cliente)}</td><td>${esc(canal(o.canal)?.nombre||'—')}</td>
     <td>${o.items.map(i=>`${i.q}× ${esc(nom(byId(S.productos,i.p)))}`).join('<br>')}${o.faltan?`<br><span class="tag warn">a producir: ${o.faltan}</span>`:''}${o.packaging?`<br><span class="muted">packaging ${money(o.packaging)}</span>`:''}</td>
-    <td class="r" style="${x?'text-decoration:line-through':''}">${money(totalPedido(o))}</td><td class="r ${x?'':g>=0?'pos':'neg'}">${x?'—':money(g)}</td>
+    <td class="r" style="${x?'text-decoration:line-through':''}">${money(totalPedido(o))}${!x&&o.items.some(i=>!precioItem(o,i))?'<br><span class="tag warn">sin precio</span>':''}</td><td class="r ${x?'':g>=0?'pos':'neg'}">${x?'—':money(g)}</td>
     <td>${x?'<span class="tag bad">Cancelado</span>':`<button class="tag ${o.estado==='Entregado'?'ok':o.estado==='Enviado'?'info':o.estado==='Preparando'?'warn':''}" style="border:0;cursor:pointer" onclick="nextEstado(${o.id})" title="Click para avanzar">${o.estado} ›</button>`}</td>
     <td class="r" style="white-space:nowrap">${x?'':`<button class="btn ghost sm" onclick="editPed(${o.id})">Editar</button> <button class="btn ghost sm" onclick="askCancel(${o.id})">Cancelar</button>`}</td></tr>`}).join('')}
   </tbody></table>`}</div>`;
@@ -656,6 +656,7 @@ function pedModal(){
     const lack=Object.entries(need).filter(([id,g])=>byId(S.filamentos,id).resta<g).map(([id,g])=>`${esc(byId(S.filamentos,id).color)}: faltan ${g-byId(S.filamentos,id).resta} g`);
     return `<div class="note" style="background:#fbecd8">Faltan ${faltas[ix]} u. de «${esc(nom(p))}» para producir.${p.fil.length?(lack.length?' No alcanza el filamento → '+lack.join(', '):' El filamento alcanza.'):''}</div>`}).join('');
   const total=draft.reduce((a,l)=>a+l.q*precioDraft(l),0);
+  const sinPrecio=[...new Set(draft.filter(l=>!precioDraft(l)).map(l=>nom(byId(S.productos,l.p))))];
   openModal(`<h2>${pv.id?'Editar pedido':'Nuevo pedido'}</h2>${pv.id?'<p class="muted" style="margin:-6px 0 12px">Al guardar, el stock se reacomoda. Los productos que ya estaban conservan su precio; si cambiás el canal, se recalcula todo con los precios actuales.</p>':''}<div class="form">
     <div><label>Cliente / referencia</label><input id="pc" value="${esc(pv.c)}"></div>
     <div><label>Canal de venta</label><select id="pca" onchange="pedRead();pedModal()">${S.canales.map(c=>`<option value="${c.id}" ${c.id===pv.ca?'selected':''}>${esc(c.nombre)}</option>`).join('')}</select></div>
@@ -665,9 +666,13 @@ function pedModal(){
       <input type="number" min="1" value="${l.q}" onchange="pedRead();draft[${ix}].q=Math.max(1,parseInt(this.value)||1);pedModal()"><button class="rm" onclick="pedRead();draft.splice(${ix},1);if(!draft.length)draft.push({p:activos()[0].id,q:1});pedModal()">×</button></div>`).join('')}
     <button class="btn ghost sm" onclick="pedRead();draft.push({p:activos()[0].id,q:1});pedModal()">+ otro producto</button></div>
     ${aviso}
+    ${sinPrecio.length?`<div class="note" style="background:#fbecd8;margin-top:12px">Sin precio en ${esc(canal(pv.ca)?.nombre||'este canal')}: ${sinPrecio.map(esc).join(', ')}. Cargalo en Precios o el total y la ganancia van a salir en $0.</div>`:''}
     <div style="margin-top:12px"><b>Total: ${money(total)}</b>${pv.pk?` <span class="muted">· packaging ${money(pv.pk)} (costo, no se suma al total)</span>`:''}</div>
+    ${pv.id?`<div style="margin-top:8px"><button class="btn ghost sm" onclick="actualizarPrecios()">Usar precios de hoy</button> <span class="muted">Pone en este pedido los precios y costos actuales (descarta los cambios sin guardar de esta ventana).</span></div>`:''}
     <div class="acts"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn" onclick="savePed()">${pv.id?'Guardar cambios':'Guardar pedido'}</button></div>`);
 }
+/* Pedidos que todavía no salieron: reemplaza precio y costo guardados por los actuales (lo hace la base). */
+function actualizarPrecios(){const id=pv.id;closeModal();act(()=>ok(sb.rpc('actualizar_precios_pedido',{p_id:id})).then(()=>toast('Pedido actualizado con los precios de hoy.')))}
 function savePed(){
   pedRead();
   const merged=Object.values(draft.reduce((m,l)=>{m[l.p]=m[l.p]?{p:l.p,q:m[l.p].q+l.q}:{...l};return m},{}));
