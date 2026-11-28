@@ -613,7 +613,7 @@ function drawPed(){
     <td>${o.items.map(i=>`${i.q}× ${esc(nom(byId(S.productos,i.p)))}`).join('<br>')}${o.faltan?`<br><span class="tag warn">a producir: ${o.faltan}</span>`:''}${o.packaging?`<br><span class="muted">packaging ${money(o.packaging)}</span>`:''}</td>
     <td class="r" style="${x?'text-decoration:line-through':''}">${money(totalPedido(o))}${!x&&o.items.some(i=>!precioItem(o,i))?'<br><span class="tag warn">sin precio</span>':''}</td><td class="r ${x?'':g>=0?'pos':'neg'}">${x?'—':money(g)}</td>
     <td>${x?'<span class="tag bad">Cancelado</span>':`<button class="tag ${o.estado==='Entregado'?'ok':o.estado==='Enviado'?'info':o.estado==='Preparando'?'warn':''}" style="border:0;cursor:pointer" onclick="nextEstado(${o.id})" title="Click para avanzar">${o.estado} ›</button>`}</td>
-    <td class="r" style="white-space:nowrap">${x?'':`<button class="btn ghost sm" onclick="editPed(${o.id})">Editar</button> <button class="btn ghost sm" onclick="askCancel(${o.id})">Cancelar</button>`}</td></tr>`}).join('')}
+    <td class="r" style="white-space:nowrap"><button class="btn ghost sm" onclick="clonarPed(${o.id})" title="Armar un pedido nuevo igual a este">Clonar</button> ${x?'':`<button class="btn ghost sm" onclick="editPed(${o.id})">Editar</button> <button class="btn ghost sm" onclick="askCancel(${o.id})">Cancelar</button>`}</td></tr>`}).join('')}
   </tbody></table>`}</div>`;
   const lc=$('#pclear');if(lc)lc.style.display=hayFiltrosPed()?'':'none';
 }
@@ -650,6 +650,19 @@ function newPed(){
   if(!activos().length)return toast('Primero creá al menos un producto.');
   if(!S.canales.length)return toast('No hay canales de venta cargados.');
   draft=[{p:activos()[0].id,q:1}];pv={id:null,c:'',ca:S.canales[S.canales.length-1].id,pk:S.config.packaging||0};pedModal()}
+/* Clonar: abre un pedido nuevo con los mismos productos, cantidades, canal y packaging.
+   El cliente queda vacío y los precios son los de hoy. Los productos archivados no se copian. */
+function clonarPed(id){
+  const o=byId(S.pedidos,id);if(!o)return;
+  if(!S.canales.length)return toast('No hay canales de venta cargados.');
+  const vivos=o.items.filter(i=>byId(S.productos,i.p)?.activo);
+  if(!vivos.length)return toast('Ningún producto de ese pedido está disponible: todos están archivados.');
+  const saltados=o.items.length-vivos.length;
+  draft=vivos.map(i=>({p:i.p,q:i.q}));
+  pv={id:null,c:'',ca:canal(o.canal)?o.canal:S.canales[S.canales.length-1].id,pk:o.packaging||0,copia:o.cliente};
+  pedModal();
+  if(saltados)toast(`${saltados} producto${saltados>1?'s':''} archivado${saltados>1?'s':''} no se copiaron.`);
+}
 function pedRead(){pv={...pv,c:$('#pc').value,ca:$('#pca').value,pk:Math.max(0,parseFloat($('#ppk').value)||0)}}
 const origPed=()=>pv.id?byId(S.pedidos,pv.id):null;
 /* Al editar, las unidades que este pedido ya tenía descontadas cuentan como disponibles. */
@@ -670,7 +683,7 @@ function pedModal(){
     return `<div class="note" style="background:#fbecd8">Faltan ${faltas[ix]} u. de «${esc(nom(p))}» para producir.${p.fil.length?(lack.length?' No alcanza el filamento → '+lack.join(', '):' El filamento alcanza.'):''}</div>`}).join('');
   const total=draft.reduce((a,l)=>a+l.q*precioDraft(l),0);
   const sinPrecio=[...new Set(draft.filter(l=>!precioDraft(l)).map(l=>nom(byId(S.productos,l.p))))];
-  openModal(`<h2>${pv.id?'Editar pedido':'Nuevo pedido'}</h2>${pv.id?'<p class="muted" style="margin:-6px 0 12px">Al guardar, el stock se reacomoda. Los productos que ya estaban conservan su precio; si cambiás el canal, se recalcula todo con los precios actuales.</p>':''}<div class="form">
+  openModal(`<h2>${pv.id?'Editar pedido':'Nuevo pedido'}</h2>${pv.copia?`<p class="muted" style="margin:-6px 0 12px">Copia del pedido de «${esc(pv.copia)}»: mismos productos, cantidades y canal. Poné el cliente; los precios son los de hoy.</p>`:''}${pv.id?'<p class="muted" style="margin:-6px 0 12px">Al guardar, el stock se reacomoda. Los productos que ya estaban conservan su precio; si cambiás el canal, se recalcula todo con los precios actuales.</p>':''}<div class="form">
     <div><label>Cliente / referencia</label><input id="pc" value="${esc(pv.c)}"></div>
     <div><label>Canal de venta</label><select id="pca" onchange="pedRead();pedModal()">${S.canales.map(c=>`<option value="${c.id}" ${c.id===pv.ca?'selected':''}>${esc(c.nombre)}</option>`).join('')}</select></div>
     <div><label>Packaging de este pedido ($)</label><input id="ppk" type="number" min="0" value="${pv.pk||0}" onchange="pedRead();pedModal()"></div></div>
